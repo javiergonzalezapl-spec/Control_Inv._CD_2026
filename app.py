@@ -5,6 +5,27 @@ import plotly.graph_objects as go
 from streamlit_option_menu import option_menu
 import io
 
+# Bloque de autenticación simple al inicio de app.py
+def check_password():
+    def password_entered():
+        if st.session_state["password"] == "Natura2026":  # Define tu clave aquí
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]
+        else:
+            st.session_state["password_correct"] = False
+
+    if "password_correct" not in st.session_state:
+        st.text_input("Ingrese la contraseña de acceso:", type="password", on_change=password_entered, key="password")
+        return False
+    elif not st.session_state["password_correct"]:
+        st.text_input("Ingrese la contraseña de acceso:", type="password", on_change=password_entered, key="password")
+        st.error("😕 Contraseña incorrecta")
+        return False
+    else:
+        return True
+
+if not check_password():
+    st.stop()  # Detiene la ejecución si no se ingresa la clave correcta
 # ------------------------------------------------------------------------------
 # 1. CONFIGURACIÓN DE PÁGINA Y ESTILOS CSS
 # ------------------------------------------------------------------------------
