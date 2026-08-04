@@ -5,27 +5,30 @@ import plotly.graph_objects as go
 from streamlit_option_menu import option_menu
 import io
 
-# Bloque de autenticación simple al inicio de app.py
+# ------------------------------------------------------------------------------
+# 0. CONTROL DE ACCESO POR CONTRASEÑA
+# ------------------------------------------------------------------------------
 def check_password():
     def password_entered():
-        if st.session_state["password"] == "Natura2026":  # Define tu clave aquí
+        if st.session_state["password"] == "Natura2026":
             st.session_state["password_correct"] = True
             del st.session_state["password"]
         else:
             st.session_state["password_correct"] = False
 
     if "password_correct" not in st.session_state:
-        st.text_input("Ingrese la contraseña de acceso:", type="password", on_change=password_entered, key="password")
+        st.text_input("🔑 Ingrese la contraseña de acceso:", type="password", on_change=password_entered, key="password")
         return False
     elif not st.session_state["password_correct"]:
-        st.text_input("Ingrese la contraseña de acceso:", type="password", on_change=password_entered, key="password")
+        st.text_input("🔑 Ingrese la contraseña de acceso:", type="password", on_change=password_entered, key="password")
         st.error("😕 Contraseña incorrecta")
         return False
     else:
         return True
 
 if not check_password():
-    st.stop()  # Detiene la ejecución si no se ingresa la clave correcta
+    st.stop()
+
 # ------------------------------------------------------------------------------
 # 1. CONFIGURACIÓN DE PÁGINA Y ESTILOS CSS
 # ------------------------------------------------------------------------------
@@ -36,12 +39,10 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Estilo para tarjetas con sombras dinámicas y compactación móvil
 st.markdown("""
     <style>
     .main .block-container {padding-top: 1rem; padding-bottom: 1.5rem;}
     
-    /* EFECTO HOVER EN TARJETAS KPI */
     .kpi-card {
         background-color: #FFFFFF;
         padding: 12px 16px;
@@ -54,7 +55,6 @@ st.markdown("""
         box-shadow: 0 6px 12px rgba(0,0,0,0.1);
     }
     
-    /* ESTILO COMPACTO EN FILTROS */
     [data-testid="stSidebar"] [data-baseweb="tag"] {
         font-size: 0.70rem !important;
         background-color: #E63946 !important;
@@ -71,9 +71,11 @@ def clean_num(val):
         return 0.0
     if isinstance(val, (int, float)):
         return float(val)
+    
     s = str(val).replace('\xa0', '').replace('$', '').replace(' ', '').strip()
     if not s or s.lower() in ['nan', 'none', 'null']:
         return 0.0
+    
     if ',' in s and '.' in s:
         s = s.replace('.', '').replace(',', '.')
     elif ',' in s:
@@ -82,6 +84,7 @@ def clean_num(val):
         parts = s.split('.')
         if len(parts) > 2 or (len(parts) == 2 and len(parts[1]) == 3):
             s = s.replace('.', '')
+            
     try:
         return float(s)
     except:
@@ -133,6 +136,7 @@ def color_celda(val):
         else:
             clean_str = str(val).replace('$', '').replace('.', '').replace(',', '.').strip()
             num = float(clean_str)
+        
         if num < 0:
             return 'color: #D32F2F; font-weight: bold;'
         elif num > 0:
@@ -152,15 +156,17 @@ ORDEN_MESES = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO',
                'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE']
 
 # ------------------------------------------------------------------------------
-# 2. CARGA Y PREPROCESAMIENTO DE DATOS
+# 2. CARGA Y PREPROCESAMIENTO DE DATOS (CORREGIDO)
 # ------------------------------------------------------------------------------
 @st.cache_data
 def load_data():
     archivo = "Ajustes de inventario Natura 2026.xlsx"
     df = pd.read_excel(archivo, sheet_name=0)
     
+    # Normalización de encabezados
     df.columns = [str(c).replace('\xa0', ' ').strip() for c in df.columns]
     
+    # Formato de Fechas y Semanas
     df['Fe.contabilización'] = pd.to_datetime(df['Fe.contabilización'], errors='coerce')
     df['Fecha_Día'] = df['Fe.contabilización'].dt.date
     df['Semana_Num'] = pd.to_numeric(df['Fe.contabilización'].dt.isocalendar().week, errors='coerce')
@@ -172,6 +178,7 @@ def load_data():
         
     df['MES'] = pd.Categorical(df['MES'], categories=ORDEN_MESES, ordered=True)
     
+    # Detección de Columna AA (TIPO DE ALMACÉN 2)
     if len(df.columns) >= 27:
         df['TIPO DE ALMACÉN 2'] = df.iloc[:, 26].astype(str).str.replace('\xa0', ' ').str.strip()
     else:
@@ -183,6 +190,7 @@ def load_data():
 
     df['TIPO DE ALMACÉN 2'] = df['TIPO DE ALMACÉN 2'].replace({'nan': 'Sin Especificar', 'None': 'Sin Especificar', '': 'Sin Especificar'})
 
+    # Conversión numérica
     df['COSTO TOTAL'] = df['COSTO TOTAL'].apply(clean_num)
     df['Cantidad de diferencia'] = df['Cantidad de diferencia'].apply(clean_num)
     
@@ -196,12 +204,13 @@ def load_data():
         lambda x: 'Faltante (-)' if x < 0 else ('Sobrante (+)' if x > 0 else 'Sin Cambio')
     )
     
-    columnas_texto = ['MOTIVO', 'PROCESO', 'CATEGORIA', 'Producto', 'Descripción producto', 'CV']
+    # LIMPIEZA SEGURO DE COLUMNAS DE TEXTO (EVITA ERROR 'float' object has no attribute 'endswith')
+    columnas_texto = ['MOTIVO', 'PROCESO', 'CATEGORIA', 'Producto', 'Descripción producto', 'CV', 'TIPO DE ALMACÉN 2']
     for col in columnas_texto:
         if col in df.columns:
-            df[col] = df[col].astype(str).str.strip().str.replace('\xa0', ' ')
-            df[col] = df[col].apply(lambda x: x[:-2] if x.endswith('.0') else x)
-            df[col] = df[col].replace({'nan': 'Sin Especificar', '': 'Sin Especificar'})
+            df[col] = df[col].fillna('Sin Especificar').astype(str).str.strip().str.replace('\xa0', ' ')
+            df[col] = df[col].str.replace(r'\.0$', '', regex=True)
+            df[col] = df[col].replace({'nan': 'Sin Especificar', 'None': 'Sin Especificar', '': 'Sin Especificar'})
             
     return df
 
@@ -211,11 +220,10 @@ try:
     st.title("🟧 Control Estratégico de Inventario Natura 2026")
     
     # --------------------------------------------------------------------------
-    # 3. FILTROS GLOBALES DINÁMICOS
+    # 3. FILTROS GLOBALES
     # --------------------------------------------------------------------------
     st.sidebar.header("🎛️ Filtros de Análisis")
     
-    # Rango de fechas dinámico
     min_date = df['Fe.contabilización'].min().date() if pd.notnull(df['Fe.contabilización'].min()) else None
     max_date = df['Fe.contabilización'].max().date() if pd.notnull(df['Fe.contabilización'].max()) else None
     
@@ -237,14 +245,12 @@ try:
     procesos = sorted([x for x in df['PROCESO'].unique() if x not in ['Sin Especificar', 'nan', 'None']])
     proceso_sel = st.sidebar.multiselect("Proceso (Col. X)", procesos, default=procesos)
     
-    # Filtrado dinámico acumulado
     mask = (df['MES'].isin(mes_sel)) & (df['TIPO DE ALMACÉN 2'].isin(almacen_sel)) & (df['PROCESO'].isin(proceso_sel))
     if f_inicio and f_fin:
         mask = mask & (df['Fe.contabilización'].dt.date >= f_inicio) & (df['Fe.contabilización'].dt.date <= f_fin)
     
     df_f = df[mask]
     
-    # BOTÓN DE DESCARGA MÓVIL/PC
     st.sidebar.markdown("---")
     st.sidebar.markdown("##### 📥 Exportar Reporte Filtrado")
     buffer = io.BytesIO()
@@ -259,7 +265,7 @@ try:
     )
 
     # --------------------------------------------------------------------------
-    # 4. BARRA DE NAVEGACIÓN DINÁMICA CON ÍCONOS (streamlit-option-menu)
+    # 4. BARRA DE NAVEGACIÓN
     # --------------------------------------------------------------------------
     selected_tab = option_menu(
         menu_title=None,
@@ -276,7 +282,7 @@ try:
     )
 
     # ==========================================================================
-    # PESTAÑA 1: IMPUTACIÓN CONTABLE + GRÁFICO CASCADA
+    # PESTAÑA 1: IMPUTACIÓN CONTABLE
     # ==========================================================================
     if selected_tab == "Imputación Contable":
         st.subheader("📊 Resumen de Imputación Contable")
@@ -298,7 +304,6 @@ try:
             
         st.divider()
         
-        # GRÁFICO DE CASCADA (WATERFALL) PARA RECONCILIACIÓN CONTABLE
         st.markdown("#### 🌊 Reconciliación Contable Dinámica (Cascada)")
         fig_waterfall = go.Figure(go.Waterfall(
             name="Contabilidad", orientation="v",
