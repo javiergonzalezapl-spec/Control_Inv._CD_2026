@@ -33,7 +33,7 @@ if not check_password():
 # 1. CONFIGURACIÓN DE PÁGINA Y ESTILOS CSS
 # ------------------------------------------------------------------------------
 st.set_page_config(
-    page_title="Natura 2026 - Control de Inventario Natura 2026",
+    page_title="Control de Inventario CD Natura 2026",
     page_icon="🟧",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -163,6 +163,14 @@ def aplicar_estilos_styler(styler, subset):
     except AttributeError:
         return styler.applymap(color_celda, subset=subset)
 
+# FUNCIÓN CACHEADA PARA DESCARGA EXCEL (ELIMINA EL RETRASO AL FILTRAR)
+@st.cache_data
+def generar_excel_descarga(df_sub):
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+        df_sub[['Fe.contabilización', 'Producto', 'Descripción producto', 'MOTIVO', 'PROCESO', 'TIPO DE ALMACÉN 2', 'Cantidad de diferencia', 'COSTO TOTAL']].to_excel(writer, sheet_name='Reporte_Filtrado', index=False)
+    return buffer.getvalue()
+
 ORDEN_MESES = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 
                'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE']
 
@@ -223,10 +231,10 @@ def load_data():
 try:
     df = load_data()
     
-    st.title("🟧 Control Estratégico de Inventario Natura 2026")
+    st.title("🟧 Control de Inventario Natura 2026")
     
     # --------------------------------------------------------------------------
-    # 3. FILTROS GLOBALES (INICIO FILTRADO EN INVENTARIO CÍCLICO)
+    # 3. FILTROS GLOBALES
     # --------------------------------------------------------------------------
     st.sidebar.header("🎛️ Filtros de Análisis")
     
@@ -251,7 +259,6 @@ try:
     
     procesos = sorted([x for x in df['PROCESO'].unique() if x not in ['Sin Especificar', 'nan', 'None']])
     
-    # DEFAULT INVENTARIO CÍCLICO
     default_proc = [p for p in procesos if 'CICLICO' in p.upper() or 'CÍCLICO' in p.upper()]
     if not default_proc:
         default_proc = procesos
@@ -264,15 +271,15 @@ try:
     
     df_f = df[mask]
     
+    # EXPORTACIÓN EXCEL RÁPIDA (CON CACHÉ)
     st.sidebar.markdown("---")
     st.sidebar.markdown("##### 📥 Exportar Reporte Filtrado")
-    buffer = io.BytesIO()
-    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-        df_f[['Fe.contabilización', 'Producto', 'Descripción producto', 'MOTIVO', 'PROCESO', 'TIPO DE ALMACÉN 2', 'Cantidad de diferencia', 'COSTO TOTAL']].to_excel(writer, sheet_name='Reporte_Filtrado', index=False)
+    
+    excel_bytes = generar_excel_descarga(df_f)
     
     st.sidebar.download_button(
         label="📄 Descargar Excel",
-        data=buffer.getvalue(),
+        data=excel_bytes,
         file_name="Reporte_Ajustes_Natura_2026.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
@@ -295,7 +302,7 @@ try:
     )
 
     # ==========================================================================
-    # PESTAÑA 1: IMPUTACIÓN CONTABLE Y ALMACENES (GRÁFICOS DE BARRAS)
+    # PESTAÑA 1: IMPUTACIÓN CONTABLE Y ALMACENES
     # ==========================================================================
     if selected_tab == "Imputación Contable":
         st.subheader("📊 Resumen de Imputación Contable")
@@ -364,7 +371,6 @@ try:
 
         st.divider()
 
-        # NUEVO GRÁFICO DE BARRAS POR TIPO DE ALMACÉN 2
         st.markdown("#### Importes de Ajuste por TIPO DE ALMACÉN 2")
         df_alm2_bar = df_f.groupby(['TIPO DE ALMACÉN 2', 'Efecto_Contable'])['COSTO TOTAL'].apply(lambda x: x.abs().sum()).reset_index()
         fig_bar_alm2 = px.bar(
@@ -378,7 +384,7 @@ try:
         st.plotly_chart(fig_bar_alm2, use_container_width=True)
 
     # ==========================================================================
-    # PESTAÑA 2: IRA E ILA CON ETIQUETAS DE DATOS Y COLORES ROJO / AZUL
+    # PESTAÑA 2: IRA E ILA
     # ==========================================================================
     elif selected_tab == "Indicadores IRA/ILA":
         st.subheader("🎯 Exactitud de Inventario (IRA) y Localización (ILA)")
@@ -403,13 +409,11 @@ try:
             df_ira_ila = df_ira_ila.dropna(subset=['IRA', 'ILA']).sort_values('Fecha_Día')
             eje_x_labels = df_ira_ila['Fecha_Día'].astype(str)
         
-        # Formatear etiquetas de porcentaje (ej. 99.1%)
         ira_labels = [f"{v:.1%}" if pd.notna(v) else "" for v in df_ira_ila['IRA']]
         ila_labels = [f"{v:.1%}" if pd.notna(v) else "" for v in df_ira_ila['ILA']]
 
         fig_time = go.Figure()
         
-        # TRAZA IRA: ROJO + ETIQUETA ARRIBA
         fig_time.add_trace(go.Scatter(
             x=eje_x_labels, 
             y=df_ira_ila['IRA'], 
@@ -422,7 +426,6 @@ try:
             marker=dict(size=8, color='#D32F2F')
         ))
         
-        # TRAZA ILA: AZUL + ETIQUETA ABAJO
         fig_time.add_trace(go.Scatter(
             x=eje_x_labels, 
             y=df_ira_ila['ILA'], 
