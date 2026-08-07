@@ -33,7 +33,7 @@ if not check_password():
 # 1. CONFIGURACIÓN DE PÁGINA Y ESTILOS CSS
 # ------------------------------------------------------------------------------
 st.set_page_config(
-    page_title="Natura 2026 - Control Estratégico",
+    page_title="Natura 2026 - Control de Inventario Natura 2026",
     page_icon="🟧",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -89,6 +89,17 @@ def clean_num(val):
         return float(s)
     except:
         return 0.0
+
+def parse_dates_robust(series):
+    s_num = pd.to_numeric(series, errors='coerce')
+    is_excel_serial = s_num.notna() & (s_num > 30000) & (s_num < 60000)
+    
+    res = pd.Series(index=series.index, dtype='datetime64[ns]')
+    if is_excel_serial.any():
+        res[is_excel_serial] = pd.to_datetime(s_num[is_excel_serial], unit='D', origin='1899-12-30', errors='coerce')
+    if (~is_excel_serial).any():
+        res[~is_excel_serial] = pd.to_datetime(series[~is_excel_serial], errors='coerce')
+    return res
 
 def fmt_moneda(valor, con_signo_suma=False):
     if pd.isna(valor):
@@ -156,21 +167,16 @@ ORDEN_MESES = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO',
                'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE']
 
 # ------------------------------------------------------------------------------
-# 2. CARGA Y PREPROCESAMIENTO DE DATOS (ACTUALIZADO A .XLSB)
+# 2. CARGA Y PREPROCESAMIENTO DE DATOS (.XLSB BINARIO)
 # ------------------------------------------------------------------------------
 @st.cache_data
 def load_data():
-    # Asegúrate de que este nombre coincida EXACTAMENTE con el archivo que subiste a GitHub
     archivo = "Ajustes de inventario Natura 2026.xlsb"
-    
-    # IMPORTANTE: Se añade engine='pyxlsb' para procesar archivos binarios
     df = pd.read_excel(archivo, sheet_name=0, engine='pyxlsb')
     
-    # Normalización de encabezados
     df.columns = [str(c).replace('\xa0', ' ').strip() for c in df.columns]
     
-    # Formato de Fechas y Semanas
-    df['Fe.contabilización'] = pd.to_datetime(df['Fe.contabilización'], errors='coerce')
+    df['Fe.contabilización'] = parse_dates_robust(df['Fe.contabilización'])
     df['Fecha_Día'] = df['Fe.contabilización'].dt.date
     df['Semana_Num'] = pd.to_numeric(df['Fe.contabilización'].dt.isocalendar().week, errors='coerce')
     
@@ -181,7 +187,6 @@ def load_data():
         
     df['MES'] = pd.Categorical(df['MES'], categories=ORDEN_MESES, ordered=True)
     
-    # Detección de Columna AA (TIPO DE ALMACÉN 2)
     if len(df.columns) >= 27:
         df['TIPO DE ALMACÉN 2'] = df.iloc[:, 26].astype(str).str.replace('\xa0', ' ').str.strip()
     else:
@@ -193,7 +198,6 @@ def load_data():
 
     df['TIPO DE ALMACÉN 2'] = df['TIPO DE ALMACÉN 2'].replace({'nan': 'Sin Especificar', 'None': 'Sin Especificar', '': 'Sin Especificar'})
 
-    # Conversión numérica
     df['COSTO TOTAL'] = df['COSTO TOTAL'].apply(clean_num)
     df['Cantidad de diferencia'] = df['Cantidad de diferencia'].apply(clean_num)
     
@@ -222,12 +226,13 @@ try:
     st.title("🟧 Control Estratégico de Inventario Natura 2026")
     
     # --------------------------------------------------------------------------
-    # 3. FILTROS GLOBALES
+    # 3. FILTROS GLOBALES (INICIO FILTRADO EN INVENTARIO CÍCLICO)
     # --------------------------------------------------------------------------
     st.sidebar.header("🎛️ Filtros de Análisis")
     
-    min_date = df['Fe.contabilización'].min().date() if pd.notnull(df['Fe.contabilización'].min()) else None
-    max_date = df['Fe.contabilización'].max().date() if pd.notnull(df['Fe.contabilización'].max()) else None
+    valid_dates = df['Fe.contabilización'].dropna()
+    min_date = valid_dates.min().date() if not valid_dates.empty else None
+    max_date = valid_dates.max().date() if not valid_dates.empty else None
     
     if min_date and max_date:
         rango_fechas = st.sidebar.date_input("Rango de Fechas 2026", [min_date, max_date])
@@ -245,7 +250,13 @@ try:
     almacen_sel = st.sidebar.multiselect("TIPO DE ALMACÉN 2", almacenes, default=almacenes)
     
     procesos = sorted([x for x in df['PROCESO'].unique() if x not in ['Sin Especificar', 'nan', 'None']])
-    proceso_sel = st.sidebar.multiselect("Proceso (Col. X)", procesos, default=procesos)
+    
+    # DEFAULT INVENTARIO CÍCLICO
+    default_proc = [p for p in procesos if 'CICLICO' in p.upper() or 'CÍCLICO' in p.upper()]
+    if not default_proc:
+        default_proc = procesos
+        
+    proceso_sel = st.sidebar.multiselect("Proceso (Col. X)", procesos, default=default_proc)
     
     mask = (df['MES'].isin(mes_sel)) & (df['TIPO DE ALMACÉN 2'].isin(almacen_sel)) & (df['PROCESO'].isin(proceso_sel))
     if f_inicio and f_fin:
@@ -284,7 +295,7 @@ try:
     )
 
     # ==========================================================================
-    # PESTAÑA 1: IMPUTACIÓN CONTABLE
+    # PESTAÑA 1: IMPUTACIÓN CONTABLE Y ALMACENES (GRÁFICOS DE BARRAS)
     # ==========================================================================
     if selected_tab == "Imputación Contable":
         st.subheader("📊 Resumen de Imputación Contable")
@@ -351,8 +362,23 @@ try:
             fig_bar_proc.update_yaxes(tickformat="$,.0f", title_text="Impacto Financiero ($)")
             st.plotly_chart(fig_bar_proc, use_container_width=True)
 
+        st.divider()
+
+        # NUEVO GRÁFICO DE BARRAS POR TIPO DE ALMACÉN 2
+        st.markdown("#### Importes de Ajuste por TIPO DE ALMACÉN 2")
+        df_alm2_bar = df_f.groupby(['TIPO DE ALMACÉN 2', 'Efecto_Contable'])['COSTO TOTAL'].apply(lambda x: x.abs().sum()).reset_index()
+        fig_bar_alm2 = px.bar(
+            df_alm2_bar, x='TIPO DE ALMACÉN 2', y='COSTO TOTAL', color='Efecto_Contable',
+            barmode='stack',
+            color_discrete_map={'Faltante (-)': '#E63946', 'Sobrante (+)': '#2A9D8F'},
+            title="Monto Acumulado por Tipo de Almacén 2"
+        )
+        fig_bar_alm2.update_xaxes(type='category', title_text="Tipo de Almacén 2", tickangle=-45)
+        fig_bar_alm2.update_yaxes(tickformat="$,.0f", title_text="Impacto Financiero ($)")
+        st.plotly_chart(fig_bar_alm2, use_container_width=True)
+
     # ==========================================================================
-    # PESTAÑA 2: IRA E ILA
+    # PESTAÑA 2: IRA E ILA CON ETIQUETAS DE DATOS Y COLORES ROJO / AZUL
     # ==========================================================================
     elif selected_tab == "Indicadores IRA/ILA":
         st.subheader("🎯 Exactitud de Inventario (IRA) y Localización (ILA)")
@@ -377,12 +403,45 @@ try:
             df_ira_ila = df_ira_ila.dropna(subset=['IRA', 'ILA']).sort_values('Fecha_Día')
             eje_x_labels = df_ira_ila['Fecha_Día'].astype(str)
         
+        # Formatear etiquetas de porcentaje (ej. 99.1%)
+        ira_labels = [f"{v:.1%}" if pd.notna(v) else "" for v in df_ira_ila['IRA']]
+        ila_labels = [f"{v:.1%}" if pd.notna(v) else "" for v in df_ira_ila['ILA']]
+
         fig_time = go.Figure()
-        fig_time.add_trace(go.Scatter(x=eje_x_labels, y=df_ira_ila['IRA'], mode='lines+markers', name='IRA (%)', line=dict(color='#E25822', width=3)))
-        fig_time.add_trace(go.Scatter(x=eje_x_labels, y=df_ira_ila['ILA'], mode='lines+markers', name='ILA (%)', line=dict(color='#264653', width=3)))
         
-        fig_time.update_layout(title=f"Evolución Cronológica por {granularidad}", yaxis_title="Porcentaje (%)", hovermode="x unified")
-        fig_time.update_yaxes(tickformat=".0%")
+        # TRAZA IRA: ROJO + ETIQUETA ARRIBA
+        fig_time.add_trace(go.Scatter(
+            x=eje_x_labels, 
+            y=df_ira_ila['IRA'], 
+            mode='lines+markers+text', 
+            name='IRA (%)', 
+            text=ira_labels,
+            textposition="top center",
+            textfont=dict(size=11, color='#D32F2F', family="sans-serif"),
+            line=dict(color='#D32F2F', width=3),
+            marker=dict(size=8, color='#D32F2F')
+        ))
+        
+        # TRAZA ILA: AZUL + ETIQUETA ABAJO
+        fig_time.add_trace(go.Scatter(
+            x=eje_x_labels, 
+            y=df_ira_ila['ILA'], 
+            mode='lines+markers+text', 
+            name='ILA (%)', 
+            text=ila_labels,
+            textposition="bottom center",
+            textfont=dict(size=11, color='#1976D2', family="sans-serif"),
+            line=dict(color='#1976D2', width=3),
+            marker=dict(size=8, color='#1976D2')
+        ))
+        
+        fig_time.update_layout(
+            title=f"Evolución Cronológica por {granularidad}", 
+            yaxis_title="Porcentaje (%)", 
+            hovermode="x unified",
+            margin=dict(t=50, b=50, l=40, r=40)
+        )
+        fig_time.update_yaxes(tickformat=".0%", automargin=True)
         fig_time.update_xaxes(tickangle=-45)
         st.plotly_chart(fig_time, use_container_width=True)
         
