@@ -158,15 +158,22 @@ def fmt_numero(valor):
     formatted = f"{val_abs:,.0f}".replace(",", ".")
     return f"-{formatted}" if es_negativo else formatted
 
-def render_kpi_color(label, val, es_moneda=False):
-    if val < 0:
+def render_kpi_color(label, val, es_moneda=False, es_porcentaje=False, color_override=None):
+    if color_override:
+        color = color_override
+    elif val < 0:
         color = "#D32F2F"
     elif val > 0:
         color = "#1976D2"
     else:
         color = "#212121"
         
-    formatted_val = fmt_moneda(val) if es_moneda else fmt_numero(val)
+    if es_porcentaje:
+        formatted_val = f"{val:.1%}" if pd.notna(val) else "0.0%"
+    elif es_moneda:
+        formatted_val = fmt_moneda(val)
+    else:
+        formatted_val = fmt_numero(val)
     
     html = f"""
     <div class="kpi-card" style="border-left: 5px solid {color};">
@@ -426,12 +433,31 @@ try:
         st.plotly_chart(fig_bar_alm2, use_container_width=True)
 
     # ==========================================================================
-    # PESTAÑA 2: IRA E ILA
+    # PESTAÑA 2: IRA E ILA CON TARJETAS ACUMULADAS A LA DERECHA
     # ==========================================================================
     elif selected_tab == "Indicadores IRA/ILA":
         st.subheader("🎯 Exactitud de Inventario (IRA) y Localización (ILA)")
         
-        granularidad = st.radio("Ver tendencia por:", ["Mes", "Semana", "Día"], horizontal=True)
+        # Cálculo de IRA e ILA acumulados del período filtrado
+        ira_series = df_f['IRA'].dropna()
+        ila_series = df_f['ILA'].dropna()
+        
+        ira_acum = float(ira_series.mean()) if not ira_series.empty else 0.0
+        ila_acum = float(ila_series.mean()) if not ila_series.empty else 0.0
+
+        # Disposición en columnas: Selector de tendencia (izq) y KPIs Acumulados (der)
+        col_ctrl, col_kpi_ira, col_kpi_ila = st.columns([2, 1, 1])
+        
+        with col_ctrl:
+            granularidad = st.radio("Ver tendencia por:", ["Mes", "Semana", "Día"], horizontal=True)
+            
+        with col_kpi_ira:
+            render_kpi_color("IRA Acumulado", ira_acum, es_porcentaje=True, color_override="#D32F2F")
+            
+        with col_kpi_ila:
+            render_kpi_color("ILA Acumulado", ila_acum, es_porcentaje=True, color_override="#1976D2")
+        
+        st.markdown("---")
         
         if granularidad == "Mes":
             col_tiempo = 'MES'
@@ -519,7 +545,6 @@ try:
             costo_sku = float(df_sku_adj['COSTO TOTAL'].sum())
             registros_sku = int(len(df_sku_adj))
             
-            # ORDEN UNIFICADO: 1) Imputación Contable (Izq), 2) Unidades Ajustadas (Centro), 3) Hitos (Der)
             k1, k2, k3 = st.columns(3)
             with k1:
                 render_kpi_color("Imputación Contable Total (Col. AC)", costo_sku, es_moneda=True)
@@ -567,7 +592,6 @@ try:
             df_cv_adj = df_cv
         
         if not df_cv.empty:
-            # Obtener únicamente la descripción principal de los registros con ajuste
             descs_validas = df_cv_adj[df_cv_adj['Descripción producto'].notna() & (~df_cv_adj['Descripción producto'].isin(['Sin Especificar', 'nan', 'None', '']))]['Descripción producto']
             if not descs_validas.empty:
                 desc_principal = descs_validas.value_counts().index[0]
@@ -580,7 +604,6 @@ try:
             unidades_cv = float(df_cv_adj['Cantidad de diferencia'].sum())
             registros_cv = int(len(df_cv_adj))
             
-            # ORDEN UNIFICADO: 1) Imputación Contable (Izq), 2) Unidades Ajustadas (Centro), 3) Hitos (Der)
             kc1, kc2, kc3 = st.columns(3)
             with kc1:
                 render_kpi_color("Imputación Contable Total (Col. AC)", costo_cv, es_moneda=True)
