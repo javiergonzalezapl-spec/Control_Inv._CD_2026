@@ -72,13 +72,12 @@ def clean_num(val):
     if pd.isna(val):
         return 0.0
     if isinstance(val, (int, float)):
-        return float(val)
+        return float(val) if not pd.isna(val) else 0.0
     
     s = str(val).replace('\xa0', '').replace('$', '').replace(' ', '').strip()
     if not s or s.lower() in ['nan', 'none', 'null', '-', '--', '']:
         return 0.0
 
-    # Detectar negativos entre paréntesis (100) o con signo al final 100-
     is_negative = False
     if (s.startswith('(') and s.endswith(')')) or s.endswith('-'):
         is_negative = True
@@ -87,12 +86,10 @@ def clean_num(val):
         is_negative = True
         s = s[1:].strip()
 
-    # Conservar únicamente dígitos, comas y puntos
     s = re.sub(r'[^\d.,]', '', s)
     if not s:
         return 0.0
 
-    # Formato numérico con separadores de miles y decimales
     if ',' in s and '.' in s:
         s = s.replace('.', '').replace(',', '.')
     elif ',' in s:
@@ -113,6 +110,8 @@ def clean_num(val):
         return 0.0
 
 def parse_dates_robust(series):
+    if isinstance(series, pd.DataFrame):
+        series = series.iloc[:, 0]
     s_num = pd.to_numeric(series, errors='coerce')
     is_excel_serial = s_num.notna() & (s_num > 30000) & (s_num < 60000)
     
@@ -122,6 +121,20 @@ def parse_dates_robust(series):
     if (~is_excel_serial).any():
         res[~is_excel_serial] = pd.to_datetime(series[~is_excel_serial], errors='coerce')
     return res
+
+def clean_pct(val):
+    num = clean_num(val)
+    if num > 1.0:
+        return num / 100.0
+    return num
+
+def calc_efecto(val):
+    if val < 0:
+        return 'Faltante (-)'
+    elif val > 0:
+        return 'Sobrante (+)'
+    else:
+        return 'Sin Cambio'
 
 def fmt_moneda(valor, con_signo_suma=False):
     if pd.isna(valor):
@@ -203,7 +216,9 @@ def load_data():
     archivo = "Ajustes de inventario Natura 2026.xlsb"
     df = pd.read_excel(archivo, sheet_name=0, engine='pyxlsb')
     
+    # Normalización de encabezados y eliminación estricta de columnas duplicadas
     df.columns = [str(c).replace('\xa0', ' ').strip() for c in df.columns]
+    df = df.loc[:, ~df.columns.duplicated(keep='first')].copy()
     
     # Búsqueda dinámica de columnas clave
     def match_col(kw_list, default):
@@ -218,7 +233,6 @@ def load_data():
     col_desc = match_col(['DESCRIPCIÓN PRODUCTO', 'DESCRIPCION', 'DESC'], 'Descripción producto')
     col_cv = match_col(['CV', 'CÓDIGO VENTA', 'CODIGO VENTA'], 'CV')
 
-    # Renombrar a nombres estándar si difieren
     rename_dict = {}
     if col_costo in df.columns and col_costo != 'COSTO TOTAL': rename_dict[col_costo] = 'COSTO TOTAL'
     if col_cant in df.columns and col_cant != 'Cantidad de diferencia': rename_dict[col_cant] = 'Cantidad de diferencia'
@@ -227,6 +241,7 @@ def load_data():
     if col_cv in df.columns and col_cv != 'CV': rename_dict[col_cv] = 'CV'
     if rename_dict:
         df = df.rename(columns=rename_dict)
+        df = df.loc[:, ~df.columns.duplicated(keep='first')].copy()
 
     df['Fe.contabilización'] = parse_dates_robust(df['Fe.contabilización'])
     df['Fecha_Día'] = df['Fe.contabilización'].dt.date
@@ -239,31 +254,33 @@ def load_data():
         
     df['MES'] = pd.Categorical(df['MES'], categories=ORDEN_MESES, ordered=True)
     
-    # Columna AA (TIPO DE ALMACÉN 2)
-    if len(df.columns) >= 27:
-        df['TIPO DE ALMACÉN 2'] = df.iloc[:, 26].astype(str).str.replace('\xa0', ' ').str.strip()
-    else:
-        col_alm2 = [c for c in df.columns if 'ALMAC' in c.upper() and '2' in c]
-        if col_alm2:
-            df['TIPO DE ALMACÉN 2'] = df[col_alm2[0]].astype(str).str.replace('\xa0', ' ').str.strip()
+    if 'TIPO DE ALMACÉN 2' not in df.columns:
+        if len(df.columns) >= 27:
+            df['TIPO DE ALMACÉN 2'] = df.iloc[:, 26].astype(str).str.replace('\xa0', ' ').str.strip()
         else:
-            df['TIPO DE ALMACÉN 2'] = "Sin Especificar"
+            col_alm2 = [c for c in df.columns if 'ALMAC' in c.upper() and '2' in c]
+            if col_alm2:
+                df['TIPO DE ALMACÉN 2'] = df[col_alm2[0]].astype(str).str.replace('\xa0', ' ').str.strip()
+            else:
+                df['TIPO DE ALMACÉN 2'] = "Sin Especificar"
 
-    df['TIPO DE ALMACÉN 2'] = df['TIPO DE ALMACÉN 2'].replace({'nan': 'Sin Especificar', 'None': 'Sin Especificar', '': 'Sin Especificar'})
+    df['TIPO DE ALMACÉN 2'] = df['TIPO DE ALMACÉN 2'].astype(str).replace({'nan': 'Sin Especificar', 'None': 'Sin Especificar', '': 'Sin Especificar'})
 
-    # Conversión numérica estricta con limpiador avanzado
+    # Conversión numérica
     df['COSTO TOTAL'] = df['COSTO TOTAL'].apply(clean_num)
     df['Cantidad de diferencia'] = df['Cantidad de diferencia'].apply(clean_num)
     
-    df['IRA'] = pd.to_numeric(df['IRA'], errors='coerce')
-    df['IRA'] = df['IRA'].apply(lambda x: x/100 if pd.notna(x) and x > 1 else x)
-    
-    df['ILA'] = pd.to_numeric(df['ILA'], errors='coerce')
-    df['ILA'] = df['ILA'].apply(lambda x: x/100 if pd.notna(x) and x > 1 else x)
-    
-    df['Efecto_Contable'] = df['Cantidad de diferencia'].apply(
-        lambda x: 'Faltante (-)' if x < 0 else ('Sobrante (+)' if x > 0 else 'Sin Cambio')
-    )
+    if 'IRA' in df.columns:
+        df['IRA'] = df['IRA'].apply(clean_pct)
+    else:
+        df['IRA'] = 0.0
+
+    if 'ILA' in df.columns:
+        df['ILA'] = df['ILA'].apply(clean_pct)
+    else:
+        df['ILA'] = 0.0
+
+    df['Efecto_Contable'] = df['Cantidad de diferencia'].apply(calc_efecto)
     
     columnas_texto = ['MOTIVO', 'PROCESO', 'CATEGORIA', 'Producto', 'Descripción producto', 'CV', 'TIPO DE ALMACÉN 2']
     for col in columnas_texto:
@@ -277,7 +294,7 @@ def load_data():
 try:
     df = load_data()
     
-    st.title("🟧 Control de Inventario Natura 2026")
+    st.title("🟧 Control de Inventario CD. Natura 2026")
     
     # --------------------------------------------------------------------------
     # 3. FILTROS GLOBALES
@@ -291,7 +308,7 @@ try:
     if min_date and max_date:
         rango_fechas = st.sidebar.date_input("Rango de Fechas 2026", [min_date, max_date])
         if len(rango_fechas) == 2:
-            f_inicio, f_fin = rango_fechas
+            f_inicio, f_fin = rango_fechas[0], rango_fechas[1]
         else:
             f_inicio, f_fin = min_date, max_date
     else:
@@ -312,7 +329,7 @@ try:
     proceso_sel = st.sidebar.multiselect("Proceso (Col. X)", procesos, default=default_proc)
     
     mask = (df['MES'].isin(mes_sel)) & (df['TIPO DE ALMACÉN 2'].isin(almacen_sel)) & (df['PROCESO'].isin(proceso_sel))
-    if f_inicio and f_fin:
+    if f_inicio is not None and f_fin is not None:
         mask = mask & (df['Fe.contabilización'].dt.date >= f_inicio) & (df['Fe.contabilización'].dt.date <= f_fin)
     
     df_f = df[mask]
@@ -347,7 +364,7 @@ try:
     )
 
     # ==========================================================================
-    # PESTAÑA 1: IMPUTACIÓN CONTABLE Y ALMACENES
+    # PESTAÑA 1: IMPUTACIÓN CONTABLE
     # ==========================================================================
     if selected_tab == "Imputación Contable":
         st.subheader("📊 Resumen de Imputación Contable")
@@ -497,7 +514,7 @@ try:
             st.dataframe(df_ira_ila.style.format({'IRA': '{:.2%}', 'ILA': '{:.2%}'}), hide_index=True)
 
     # ==========================================================================
-    # PESTAÑA 3: DRILL-DOWN SKU (PRODUCTO) - REPARADO
+    # PESTAÑA 3: DRILL-DOWN SKU (PRODUCTO)
     # ==========================================================================
     elif selected_tab == "Drill-Down SKU":
         st.subheader("🔍 Drill-Down por SKU (Producto)")
@@ -509,8 +526,8 @@ try:
         if not df_sku.empty:
             st.info(f"**Descripción:** {df_sku['Descripción producto'].iloc[0]}")
             
-            unidades_sku = df_sku['Cantidad de diferencia'].sum()
-            costo_sku = df_sku['COSTO TOTAL'].sum()
+            unidades_sku = float(df_sku['Cantidad de diferencia'].sum())
+            costo_sku = float(df_sku['COSTO TOTAL'].sum())
             registros_sku = len(df_sku)
             
             k1, k2, k3 = st.columns(3)
@@ -542,7 +559,7 @@ try:
             st.dataframe(styled_df_sku, use_container_width=True, hide_index=True)
 
     # ==========================================================================
-    # PESTAÑA 4: DRILL-DOWN CÓDIGO DE VENTA (CV) - REPARADO
+    # PESTAÑA 4: DRILL-DOWN CÓDIGO DE VENTA (CV)
     # ==========================================================================
     elif selected_tab == "Drill-Down CV":
         st.subheader("🏷️ Drill-Down por Código de Venta (CV - Columna AC)")
@@ -552,8 +569,8 @@ try:
         df_cv = df_f[df_f['CV'] == cv_seleccionado]
         
         if not df_cv.empty:
-            costo_cv = df_cv['COSTO TOTAL'].sum()
-            unidades_cv = df_cv['Cantidad de diferencia'].sum()
+            costo_cv = float(df_cv['COSTO TOTAL'].sum())
+            unidades_cv = float(df_cv['Cantidad de diferencia'].sum())
             prods_cv = df_cv['Producto'].nunique()
             
             kc1, kc2, kc3 = st.columns(3)
