@@ -34,7 +34,7 @@ if not check_password():
 # 1. CONFIGURACIÓN DE PÁGINA Y ESTILOS CSS
 # ------------------------------------------------------------------------------
 st.set_page_config(
-    page_title="Natura 2026 - Control Estratégico",
+    page_title="Control de Inventario CD Natura 2026",
     page_icon="🟧",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -65,10 +65,10 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ------------------------------------------------------------------------------
-# FUNCIONES DE FORMATO Y LIMPIEZA NUMÉRICA CORREGIDAS
+# FUNCIONES DE FORMATO Y LIMPIEZA NUMÉRICA POR COLUMNA
 # ------------------------------------------------------------------------------
 def clean_num(val):
-    """Limpia valores numéricos respetando el signo sin alterar negativos."""
+    """Limpia números de Excel sin perder signos ni decimales."""
     if pd.isna(val):
         return 0.0
     if isinstance(val, (int, float)):
@@ -123,7 +123,6 @@ def parse_dates_robust(series):
     return res
 
 def clean_pct_raw(val):
-    """Limpia porcentajes IRA/ILA SIN rellenar vacíos con cero para no alterar promedios."""
     if pd.isna(val):
         return None
     num = clean_num(val)
@@ -212,39 +211,37 @@ ORDEN_MESES = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO',
                'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE']
 
 # ------------------------------------------------------------------------------
-# 2. CARGA Y PREPROCESAMIENTO DE DATOS (.XLSB BINARIO)
+# 2. CARGA Y PREPROCESAMIENTO DE DATOS CON MAPEO MÁS PRECISO
 # ------------------------------------------------------------------------------
 @st.cache_data
 def load_data():
     archivo = "Ajustes de inventario Natura 2026.xlsb"
     df = pd.read_excel(archivo, sheet_name=0, engine='pyxlsb')
     
-    # Normalización de encabezados y eliminación de duplicados de columnas
-    df.columns = [str(c).replace('\xa0', ' ').strip() for c in df.columns]
-    df = df.loc[:, ~df.columns.duplicated(keep='first')].copy()
+    # 1. Asignar nombres posicionales exactos por índice de columna para evitar confusiones
+    # Col K (índice 10) = Cantidad de diferencia (Cantidad Ajustada)
+    # Col AC (índice 28) = COSTO TOTAL (Imputación Contable)
     
-    def match_col(kw_list, default):
-        for col in df.columns:
-            if any(kw in col.upper() for kw in kw_list):
-                return col
-        return default
+    cols = list(df.columns)
+    
+    # Asegurar nombre estandarizado por posición de columna si existen las posiciones
+    col_mapping = {}
+    if len(cols) > 10: col_mapping[cols[10]] = 'Cantidad de diferencia'
+    if len(cols) > 28: col_mapping[cols[28]] = 'COSTO TOTAL'
+    if len(cols) > 5:  col_mapping[cols[5]]  = 'Producto'
+    if len(cols) > 6:  col_mapping[cols[6]]  = 'Descripción producto'
+    if len(cols) > 22: col_mapping[cols[22]] = 'MOTIVO'
+    if len(cols) > 23: col_mapping[cols[23]] = 'PROCESO'
+    if len(cols) > 26: col_mapping[cols[26]] = 'TIPO DE ALMACÉN 2'
+    if len(cols) > 29: col_mapping[cols[29]] = 'CV'
+    if len(cols) > 31: col_mapping[cols[31]] = 'IRA'
+    if len(cols) > 32: col_mapping[cols[32]] = 'ILA'
+    if len(cols) > 33: col_mapping[cols[33]] = 'MES'
 
-    col_costo = match_col(['COSTO TOTAL', 'COSTO', 'MONTO'], 'COSTO TOTAL')
-    col_cant = match_col(['CANTIDAD DE DIFERENCIA', 'DIFERENCIA', 'CANTIDAD'], 'Cantidad de diferencia')
-    col_prod = match_col(['PRODUCTO', 'SKU', 'MATERIAL'], 'Producto')
-    col_desc = match_col(['DESCRIPCIÓN PRODUCTO', 'DESCRIPCION', 'DESC'], 'Descripción producto')
-    col_cv = match_col(['CV', 'CÓDIGO VENTA', 'CODIGO VENTA'], 'CV')
+    df = df.rename(columns=col_mapping)
+    df = df.loc[:, ~df.columns.duplicated(keep='first')].copy()
 
-    rename_dict = {}
-    if col_costo in df.columns and col_costo != 'COSTO TOTAL': rename_dict[col_costo] = 'COSTO TOTAL'
-    if col_cant in df.columns and col_cant != 'Cantidad de diferencia': rename_dict[col_cant] = 'Cantidad de diferencia'
-    if col_prod in df.columns and col_prod != 'Producto': rename_dict[col_prod] = 'Producto'
-    if col_desc in df.columns and col_desc != 'Descripción producto': rename_dict[col_desc] = 'Descripción producto'
-    if col_cv in df.columns and col_cv != 'CV': rename_dict[col_cv] = 'CV'
-    if rename_dict:
-        df = df.rename(columns=rename_dict)
-        df = df.loc[:, ~df.columns.duplicated(keep='first')].copy()
-
+    # Formato de fechas
     df['Fe.contabilización'] = parse_dates_robust(df['Fe.contabilización'])
     df['Fecha_Día'] = df['Fe.contabilización'].dt.date
     df['Semana_Num'] = pd.to_numeric(df['Fe.contabilización'].dt.isocalendar().week, errors='coerce')
@@ -255,24 +252,12 @@ def load_data():
         df['MES'] = df['Fe.contabilización'].dt.strftime('%B').str.upper()
         
     df['MES'] = pd.Categorical(df['MES'], categories=ORDEN_MESES, ordered=True)
-    
-    if 'TIPO DE ALMACÉN 2' not in df.columns:
-        if len(df.columns) >= 27:
-            df['TIPO DE ALMACÉN 2'] = df.iloc[:, 26].astype(str).str.replace('\xa0', ' ').str.strip()
-        else:
-            col_alm2 = [c for c in df.columns if 'ALMAC' in c.upper() and '2' in c]
-            if col_alm2:
-                df['TIPO DE ALMACÉN 2'] = df[col_alm2[0]].astype(str).str.replace('\xa0', ' ').str.strip()
-            else:
-                df['TIPO DE ALMACÉN 2'] = "Sin Especificar"
 
-    df['TIPO DE ALMACÉN 2'] = df['TIPO DE ALMACÉN 2'].astype(str).replace({'nan': 'Sin Especificar', 'None': 'Sin Especificar', '': 'Sin Especificar'})
-
-    # Conversión numérica de Costos y Diferencias
-    df['COSTO TOTAL'] = df['COSTO TOTAL'].apply(clean_num)
+    # Conversión estricta de las columnas clave K (diferencia) y AC (monto)
     df['Cantidad de diferencia'] = df['Cantidad de diferencia'].apply(clean_num)
+    df['COSTO TOTAL'] = df['COSTO TOTAL'].apply(clean_num)
     
-    # Mapeo IRA / ILA sin rellenar con ceros (para evitar promedios erróneos)
+    # Mapeo de porcentajes sin cero por defecto
     if 'IRA' in df.columns:
         df['IRA'] = df['IRA'].apply(clean_pct_raw)
     else:
@@ -283,12 +268,14 @@ def load_data():
     else:
         df['ILA'] = None
 
+    # Efecto Contable derivado de la Columna K (Cantidad de diferencia)
     df['Efecto_Contable'] = df['Cantidad de diferencia'].apply(calc_efecto)
     
+    # Limpieza de textos en columnas clave
     columnas_texto = ['MOTIVO', 'PROCESO', 'CATEGORIA', 'Producto', 'Descripción producto', 'CV', 'TIPO DE ALMACÉN 2']
     for col in columnas_texto:
         if col in df.columns:
-            df[col] = df[col].astype(str).str.strip().str.replace('\xa0', ' ')
+            df[col] = df[col].fillna('Sin Especificar').astype(str).str.strip().str.replace('\xa0', ' ')
             df[col] = df[col].str.replace(r'\.0$', '', regex=True)
             df[col] = df[col].replace({'nan': 'Sin Especificar', 'None': 'Sin Especificar', '': 'Sin Especificar'})
             
@@ -297,7 +284,7 @@ def load_data():
 try:
     df = load_data()
     
-    st.title("🟧 Control Estratégico de Inventario Natura 2026")
+    st.title("🟧 Control de Inventario CD Natura 2026")
     
     # --------------------------------------------------------------------------
     # 3. FILTROS GLOBALES
@@ -325,7 +312,7 @@ try:
     
     procesos = sorted([x for x in df['PROCESO'].unique() if x not in ['Sin Especificar', 'nan', 'None']])
     
-    # Por defecto selecciona "INVENTARIO CÍCLICO"
+    # Selecciona por defecto "INVENTARIO CÍCLICO"
     default_proc = [p for p in procesos if 'CICLICO' in p.upper() or 'CÍCLICO' in p.upper()]
     if not default_proc:
         default_proc = procesos
@@ -376,7 +363,6 @@ try:
         df_faltantes = df_f[df_f['Efecto_Contable'] == 'Faltante (-)']
         df_sobrantes = df_f[df_f['Efecto_Contable'] == 'Sobrante (+)']
         
-        # Sumas absolutas independientes por registro
         monto_faltantes = abs(df_faltantes['COSTO TOTAL'].sum())
         monto_sobrantes = abs(df_sobrantes['COSTO TOTAL'].sum())
         valor_neto = monto_sobrantes - monto_faltantes
@@ -451,7 +437,7 @@ try:
         st.plotly_chart(fig_bar_alm2, use_container_width=True)
 
     # ==========================================================================
-    # PESTAÑA 2: IRA E ILA (PROMEDIOS CALCULADOS SOBRE REGISTROS VÁLIDOS)
+    # PESTAÑA 2: IRA E ILA
     # ==========================================================================
     elif selected_tab == "Indicadores IRA/ILA":
         st.subheader("🎯 Exactitud de Inventario (IRA) y Localización (ILA)")
@@ -481,7 +467,6 @@ try:
 
         fig_time = go.Figure()
         
-        # IRA: Línea roja
         fig_time.add_trace(go.Scatter(
             x=eje_x_labels, 
             y=df_ira_ila['IRA'], 
@@ -494,7 +479,6 @@ try:
             marker=dict(size=8, color='#D32F2F')
         ))
         
-        # ILA: Línea azul
         fig_time.add_trace(go.Scatter(
             x=eje_x_labels, 
             y=df_ira_ila['ILA'], 
@@ -535,15 +519,15 @@ try:
             
             unidades_sku = float(df_sku['Cantidad de diferencia'].sum())
             costo_sku = float(df_sku['COSTO TOTAL'].sum())
-            registros_sku = len(df_sku)
+            registros_sku = int(len(df_sku))
             
             k1, k2, k3 = st.columns(3)
             with k1:
-                render_kpi_color("Unidades Ajustadas", unidades_sku, es_moneda=False)
+                render_kpi_color("Unidades Ajustadas (Col. K)", unidades_sku, es_moneda=False)
             with k2:
-                render_kpi_color("Imputación Contable Total", costo_sku, es_moneda=True)
+                render_kpi_color("Imputación Contable Total (Col. AC)", costo_sku, es_moneda=True)
             with k3:
-                render_kpi_color("Registros de Ajuste", registros_sku, es_moneda=False)
+                render_kpi_color("Ajustes de Inventario (Hitos)", registros_sku, es_moneda=False)
             
             st.markdown("---")
             col_s1, col_s2 = st.columns(2)
@@ -559,7 +543,7 @@ try:
                 fig_pr.update_xaxes(type='category', tickangle=-45)
                 st.plotly_chart(fig_pr, use_container_width=True)
                 
-            st.markdown("#### Detalle de Imputación Contable (Columna AB)")
+            st.markdown("#### Detalle de Imputación Contable (Columna AC)")
             df_sku_display = df_sku[['Fe.contabilización', 'MOTIVO', 'PROCESO', 'TIPO DE ALMACÉN 2', 'Cantidad de diferencia', 'COSTO TOTAL']].copy()
             styled_df_sku = df_sku_display.style.format({'Cantidad de diferencia': fmt_numero, 'COSTO TOTAL': fmt_moneda})
             styled_df_sku = aplicar_estilos_styler(styled_df_sku, ['Cantidad de diferencia', 'COSTO TOTAL'])
@@ -569,7 +553,7 @@ try:
     # PESTAÑA 4: DRILL-DOWN CÓDIGO DE VENTA (CV)
     # ==========================================================================
     elif selected_tab == "Drill-Down CV":
-        st.subheader("🏷️ Drill-Down por Código de Venta (CV - Columna AC)")
+        st.subheader("🏷️ Drill-Down por Código de Venta (CV - Columna AD)")
         cv_lista = sorted([x for x in df_f['CV'].unique() if x not in ['Sin Especificar', 'nan', 'None']])
         cv_seleccionado = st.selectbox("Seleccione el Código de Venta (CV):", cv_lista)
         
@@ -578,15 +562,15 @@ try:
         if not df_cv.empty:
             costo_cv = float(df_cv['COSTO TOTAL'].sum())
             unidades_cv = float(df_cv['Cantidad de diferencia'].sum())
-            prods_cv = df_cv['Producto'].nunique()
+            registros_cv = int(len(df_cv))
             
             kc1, kc2, kc3 = st.columns(3)
             with kc1:
-                render_kpi_color("Imputación Contable Total", costo_cv, es_moneda=True)
+                render_kpi_color("Imputación Contable Total (Col. AC)", costo_cv, es_moneda=True)
             with kc2:
-                render_kpi_color("Unidades Diferencia", unidades_cv, es_moneda=False)
+                render_kpi_color("Unidades Ajustadas (Col. K)", unidades_cv, es_moneda=False)
             with kc3:
-                render_kpi_color("Productos Afectados", prods_cv, es_moneda=False)
+                render_kpi_color("Ajustes de Inventario (Hitos)", registros_cv, es_moneda=False)
             
             st.markdown("---")
             col_c1, col_c2 = st.columns(2)
