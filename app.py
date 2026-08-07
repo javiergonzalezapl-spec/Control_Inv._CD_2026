@@ -34,7 +34,7 @@ if not check_password():
 # 1. CONFIGURACIÓN DE PÁGINA Y ESTILOS CSS
 # ------------------------------------------------------------------------------
 st.set_page_config(
-    page_title=" CD Natura 2026 - Control de Inventario",
+    page_title="Natura 2026 - Control Estratégico",
     page_icon="🟧",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -297,7 +297,7 @@ def load_data():
 try:
     df = load_data()
     
-    st.title("🟧 Control de Inventario CD Natura 2026")
+    st.title("🟧 Control Estratégico de Inventario Natura 2026")
     
     # --------------------------------------------------------------------------
     # 3. FILTROS GLOBALES
