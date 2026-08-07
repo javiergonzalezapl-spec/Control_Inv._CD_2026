@@ -156,12 +156,15 @@ ORDEN_MESES = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO',
                'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE']
 
 # ------------------------------------------------------------------------------
-# 2. CARGA Y PREPROCESAMIENTO DE DATOS (CORREGIDO)
+# 2. CARGA Y PREPROCESAMIENTO DE DATOS (ACTUALIZADO A .XLSB)
 # ------------------------------------------------------------------------------
 @st.cache_data
 def load_data():
-    archivo = "Ajustes de inventario Natura 2026.xlsx"
-    df = pd.read_excel(archivo, sheet_name=0)
+    # Asegúrate de que este nombre coincida EXACTAMENTE con el archivo que subiste a GitHub
+    archivo = "Ajustes de inventario Natura 2026.xlsb"
+    
+    # IMPORTANTE: Se añade engine='pyxlsb' para procesar archivos binarios
+    df = pd.read_excel(archivo, sheet_name=0, engine='pyxlsb')
     
     # Normalización de encabezados
     df.columns = [str(c).replace('\xa0', ' ').strip() for c in df.columns]
@@ -204,7 +207,6 @@ def load_data():
         lambda x: 'Faltante (-)' if x < 0 else ('Sobrante (+)' if x > 0 else 'Sin Cambio')
     )
     
-    # LIMPIEZA SEGURO DE COLUMNAS DE TEXTO (EVITA ERROR 'float' object has no attribute 'endswith')
     columnas_texto = ['MOTIVO', 'PROCESO', 'CATEGORIA', 'Producto', 'Descripción producto', 'CV', 'TIPO DE ALMACÉN 2']
     for col in columnas_texto:
         if col in df.columns:
