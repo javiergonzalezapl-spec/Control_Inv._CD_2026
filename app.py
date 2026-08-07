@@ -4,6 +4,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from streamlit_option_menu import option_menu
 import io
+import re
 
 # ------------------------------------------------------------------------------
 # 0. CONTROL DE ACCESO POR CONTRASEÑA
@@ -64,29 +65,50 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ------------------------------------------------------------------------------
-# FUNCIONES DE FORMATO Y LIMPIEZA NUMÉRICA
+# FUNCIONES DE FORMATO Y LIMPIEZA NUMÉRICA AVANZADA
 # ------------------------------------------------------------------------------
 def clean_num(val):
+    """Limpia todo tipo de formatos numéricos de Excel (paréntesis, $, espacios, etc.)."""
     if pd.isna(val):
         return 0.0
     if isinstance(val, (int, float)):
         return float(val)
     
     s = str(val).replace('\xa0', '').replace('$', '').replace(' ', '').strip()
-    if not s or s.lower() in ['nan', 'none', 'null']:
+    if not s or s.lower() in ['nan', 'none', 'null', '-', '--', '']:
         return 0.0
-    
+
+    # Detectar negativos entre paréntesis (100) o con signo al final 100-
+    is_negative = False
+    if (s.startswith('(') and s.endswith(')')) or s.endswith('-'):
+        is_negative = True
+        s = s.replace('(', '').replace(')', '').replace('-', '').strip()
+    elif s.startswith('-'):
+        is_negative = True
+        s = s[1:].strip()
+
+    # Conservar únicamente dígitos, comas y puntos
+    s = re.sub(r'[^\d.,]', '', s)
+    if not s:
+        return 0.0
+
+    # Formato numérico con separadores de miles y decimales
     if ',' in s and '.' in s:
         s = s.replace('.', '').replace(',', '.')
     elif ',' in s:
-        s = s.replace(',', '.')
+        parts = s.split(',')
+        if len(parts[-1]) == 3 and len(parts) > 1:
+            s = s.replace(',', '')
+        else:
+            s = s.replace(',', '.')
     elif '.' in s:
         parts = s.split('.')
-        if len(parts) > 2 or (len(parts) == 2 and len(parts[1]) == 3):
+        if len(parts) > 2 or (len(parts[-1]) == 3 and len(parts) > 1):
             s = s.replace('.', '')
-            
+
     try:
-        return float(s)
+        num = float(s)
+        return -num if is_negative else num
     except:
         return 0.0
 
@@ -163,7 +185,6 @@ def aplicar_estilos_styler(styler, subset):
     except AttributeError:
         return styler.applymap(color_celda, subset=subset)
 
-# FUNCIÓN CACHEADA PARA DESCARGA EXCEL (ELIMINA EL RETRASO AL FILTRAR)
 @st.cache_data
 def generar_excel_descarga(df_sub):
     buffer = io.BytesIO()
@@ -184,6 +205,29 @@ def load_data():
     
     df.columns = [str(c).replace('\xa0', ' ').strip() for c in df.columns]
     
+    # Búsqueda dinámica de columnas clave
+    def match_col(kw_list, default):
+        for col in df.columns:
+            if any(kw in col.upper() for kw in kw_list):
+                return col
+        return default
+
+    col_costo = match_col(['COSTO TOTAL', 'COSTO', 'MONTO'], 'COSTO TOTAL')
+    col_cant = match_col(['CANTIDAD DE DIFERENCIA', 'DIFERENCIA', 'CANTIDAD'], 'Cantidad de diferencia')
+    col_prod = match_col(['PRODUCTO', 'SKU', 'MATERIAL'], 'Producto')
+    col_desc = match_col(['DESCRIPCIÓN PRODUCTO', 'DESCRIPCION', 'DESC'], 'Descripción producto')
+    col_cv = match_col(['CV', 'CÓDIGO VENTA', 'CODIGO VENTA'], 'CV')
+
+    # Renombrar a nombres estándar si difieren
+    rename_dict = {}
+    if col_costo in df.columns and col_costo != 'COSTO TOTAL': rename_dict[col_costo] = 'COSTO TOTAL'
+    if col_cant in df.columns and col_cant != 'Cantidad de diferencia': rename_dict[col_cant] = 'Cantidad de diferencia'
+    if col_prod in df.columns and col_prod != 'Producto': rename_dict[col_prod] = 'Producto'
+    if col_desc in df.columns and col_desc != 'Descripción producto': rename_dict[col_desc] = 'Descripción producto'
+    if col_cv in df.columns and col_cv != 'CV': rename_dict[col_cv] = 'CV'
+    if rename_dict:
+        df = df.rename(columns=rename_dict)
+
     df['Fe.contabilización'] = parse_dates_robust(df['Fe.contabilización'])
     df['Fecha_Día'] = df['Fe.contabilización'].dt.date
     df['Semana_Num'] = pd.to_numeric(df['Fe.contabilización'].dt.isocalendar().week, errors='coerce')
@@ -195,6 +239,7 @@ def load_data():
         
     df['MES'] = pd.Categorical(df['MES'], categories=ORDEN_MESES, ordered=True)
     
+    # Columna AA (TIPO DE ALMACÉN 2)
     if len(df.columns) >= 27:
         df['TIPO DE ALMACÉN 2'] = df.iloc[:, 26].astype(str).str.replace('\xa0', ' ').str.strip()
     else:
@@ -206,14 +251,15 @@ def load_data():
 
     df['TIPO DE ALMACÉN 2'] = df['TIPO DE ALMACÉN 2'].replace({'nan': 'Sin Especificar', 'None': 'Sin Especificar', '': 'Sin Especificar'})
 
+    # Conversión numérica estricta con limpiador avanzado
     df['COSTO TOTAL'] = df['COSTO TOTAL'].apply(clean_num)
     df['Cantidad de diferencia'] = df['Cantidad de diferencia'].apply(clean_num)
     
     df['IRA'] = pd.to_numeric(df['IRA'], errors='coerce')
-    df['IRA'] = df['IRA'].apply(lambda x: x/100 if x > 1 else x)
+    df['IRA'] = df['IRA'].apply(lambda x: x/100 if pd.notna(x) and x > 1 else x)
     
     df['ILA'] = pd.to_numeric(df['ILA'], errors='coerce')
-    df['ILA'] = df['ILA'].apply(lambda x: x/100 if x > 1 else x)
+    df['ILA'] = df['ILA'].apply(lambda x: x/100 if pd.notna(x) and x > 1 else x)
     
     df['Efecto_Contable'] = df['Cantidad de diferencia'].apply(
         lambda x: 'Faltante (-)' if x < 0 else ('Sobrante (+)' if x > 0 else 'Sin Cambio')
@@ -271,7 +317,6 @@ try:
     
     df_f = df[mask]
     
-    # EXPORTACIÓN EXCEL RÁPIDA (CON CACHÉ)
     st.sidebar.markdown("---")
     st.sidebar.markdown("##### 📥 Exportar Reporte Filtrado")
     
@@ -452,7 +497,7 @@ try:
             st.dataframe(df_ira_ila.style.format({'IRA': '{:.2%}', 'ILA': '{:.2%}'}), hide_index=True)
 
     # ==========================================================================
-    # PESTAÑA 3: DRILL-DOWN SKU
+    # PESTAÑA 3: DRILL-DOWN SKU (PRODUCTO) - REPARADO
     # ==========================================================================
     elif selected_tab == "Drill-Down SKU":
         st.subheader("🔍 Drill-Down por SKU (Producto)")
@@ -497,7 +542,7 @@ try:
             st.dataframe(styled_df_sku, use_container_width=True, hide_index=True)
 
     # ==========================================================================
-    # PESTAÑA 4: DRILL-DOWN CV
+    # PESTAÑA 4: DRILL-DOWN CÓDIGO DE VENTA (CV) - REPARADO
     # ==========================================================================
     elif selected_tab == "Drill-Down CV":
         st.subheader("🏷️ Drill-Down por Código de Venta (CV - Columna AC)")
