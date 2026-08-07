@@ -34,7 +34,7 @@ if not check_password():
 # 1. CONFIGURACIÓN DE PÁGINA Y ESTILOS CSS
 # ------------------------------------------------------------------------------
 st.set_page_config(
-    page_title="Control de Inventario CD Natura 2026",
+    page_title=" CD Natura 2026 - Control de Inventario",
     page_icon="🟧",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -65,10 +65,10 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ------------------------------------------------------------------------------
-# FUNCIONES DE FORMATO Y LIMPIEZA NUMÉRICA AVANZADA
+# FUNCIONES DE FORMATO Y LIMPIEZA NUMÉRICA CORREGIDAS
 # ------------------------------------------------------------------------------
 def clean_num(val):
-    """Limpia todo tipo de formatos numéricos de Excel (paréntesis, $, espacios, etc.)."""
+    """Limpia valores numéricos respetando el signo sin alterar negativos."""
     if pd.isna(val):
         return 0.0
     if isinstance(val, (int, float)):
@@ -122,7 +122,10 @@ def parse_dates_robust(series):
         res[~is_excel_serial] = pd.to_datetime(series[~is_excel_serial], errors='coerce')
     return res
 
-def clean_pct(val):
+def clean_pct_raw(val):
+    """Limpia porcentajes IRA/ILA SIN rellenar vacíos con cero para no alterar promedios."""
+    if pd.isna(val):
+        return None
     num = clean_num(val)
     if num > 1.0:
         return num / 100.0
@@ -216,11 +219,10 @@ def load_data():
     archivo = "Ajustes de inventario Natura 2026.xlsb"
     df = pd.read_excel(archivo, sheet_name=0, engine='pyxlsb')
     
-    # Normalización de encabezados y eliminación estricta de columnas duplicadas
+    # Normalización de encabezados y eliminación de duplicados de columnas
     df.columns = [str(c).replace('\xa0', ' ').strip() for c in df.columns]
     df = df.loc[:, ~df.columns.duplicated(keep='first')].copy()
     
-    # Búsqueda dinámica de columnas clave
     def match_col(kw_list, default):
         for col in df.columns:
             if any(kw in col.upper() for kw in kw_list):
@@ -266,26 +268,27 @@ def load_data():
 
     df['TIPO DE ALMACÉN 2'] = df['TIPO DE ALMACÉN 2'].astype(str).replace({'nan': 'Sin Especificar', 'None': 'Sin Especificar', '': 'Sin Especificar'})
 
-    # Conversión numérica
+    # Conversión numérica de Costos y Diferencias
     df['COSTO TOTAL'] = df['COSTO TOTAL'].apply(clean_num)
     df['Cantidad de diferencia'] = df['Cantidad de diferencia'].apply(clean_num)
     
+    # Mapeo IRA / ILA sin rellenar con ceros (para evitar promedios erróneos)
     if 'IRA' in df.columns:
-        df['IRA'] = df['IRA'].apply(clean_pct)
+        df['IRA'] = df['IRA'].apply(clean_pct_raw)
     else:
-        df['IRA'] = 0.0
+        df['IRA'] = None
 
     if 'ILA' in df.columns:
-        df['ILA'] = df['ILA'].apply(clean_pct)
+        df['ILA'] = df['ILA'].apply(clean_pct_raw)
     else:
-        df['ILA'] = 0.0
+        df['ILA'] = None
 
     df['Efecto_Contable'] = df['Cantidad de diferencia'].apply(calc_efecto)
     
     columnas_texto = ['MOTIVO', 'PROCESO', 'CATEGORIA', 'Producto', 'Descripción producto', 'CV', 'TIPO DE ALMACÉN 2']
     for col in columnas_texto:
         if col in df.columns:
-            df[col] = df[col].fillna('Sin Especificar').astype(str).str.strip().str.replace('\xa0', ' ')
+            df[col] = df[col].astype(str).str.strip().str.replace('\xa0', ' ')
             df[col] = df[col].str.replace(r'\.0$', '', regex=True)
             df[col] = df[col].replace({'nan': 'Sin Especificar', 'None': 'Sin Especificar', '': 'Sin Especificar'})
             
@@ -294,7 +297,7 @@ def load_data():
 try:
     df = load_data()
     
-    st.title("🟧 Control de Inventario CD. Natura 2026")
+    st.title("🟧 Control de Inventario CD Natura 2026")
     
     # --------------------------------------------------------------------------
     # 3. FILTROS GLOBALES
@@ -322,6 +325,7 @@ try:
     
     procesos = sorted([x for x in df['PROCESO'].unique() if x not in ['Sin Especificar', 'nan', 'None']])
     
+    # Por defecto selecciona "INVENTARIO CÍCLICO"
     default_proc = [p for p in procesos if 'CICLICO' in p.upper() or 'CÍCLICO' in p.upper()]
     if not default_proc:
         default_proc = procesos
@@ -372,6 +376,7 @@ try:
         df_faltantes = df_f[df_f['Efecto_Contable'] == 'Faltante (-)']
         df_sobrantes = df_f[df_f['Efecto_Contable'] == 'Sobrante (+)']
         
+        # Sumas absolutas independientes por registro
         monto_faltantes = abs(df_faltantes['COSTO TOTAL'].sum())
         monto_sobrantes = abs(df_sobrantes['COSTO TOTAL'].sum())
         valor_neto = monto_sobrantes - monto_faltantes
@@ -446,7 +451,7 @@ try:
         st.plotly_chart(fig_bar_alm2, use_container_width=True)
 
     # ==========================================================================
-    # PESTAÑA 2: IRA E ILA
+    # PESTAÑA 2: IRA E ILA (PROMEDIOS CALCULADOS SOBRE REGISTROS VÁLIDOS)
     # ==========================================================================
     elif selected_tab == "Indicadores IRA/ILA":
         st.subheader("🎯 Exactitud de Inventario (IRA) y Localización (ILA)")
@@ -456,19 +461,19 @@ try:
         if granularidad == "Mes":
             col_tiempo = 'MES'
             df_ira_ila = df_f.groupby(col_tiempo, observed=False)[['IRA', 'ILA']].mean().reset_index()
-            df_ira_ila = df_ira_ila.dropna(subset=['IRA', 'ILA']).sort_values('MES')
+            df_ira_ila = df_ira_ila.dropna(subset=['IRA', 'ILA'], how='all').sort_values('MES')
             eje_x_labels = df_ira_ila['MES'].astype(str)
             
         elif granularidad == "Semana":
             col_tiempo = 'Semana_Num'
             df_ira_ila = df_f.groupby(col_tiempo, observed=False)[['IRA', 'ILA']].mean().reset_index()
-            df_ira_ila = df_ira_ila.dropna(subset=['IRA', 'ILA']).sort_values('Semana_Num')
+            df_ira_ila = df_ira_ila.dropna(subset=['IRA', 'ILA'], how='all').sort_values('Semana_Num')
             eje_x_labels = "Sem " + df_ira_ila['Semana_Num'].astype(int).astype(str)
             
         else:
             col_tiempo = 'Fecha_Día'
             df_ira_ila = df_f.groupby(col_tiempo, observed=False)[['IRA', 'ILA']].mean().reset_index()
-            df_ira_ila = df_ira_ila.dropna(subset=['IRA', 'ILA']).sort_values('Fecha_Día')
+            df_ira_ila = df_ira_ila.dropna(subset=['IRA', 'ILA'], how='all').sort_values('Fecha_Día')
             eje_x_labels = df_ira_ila['Fecha_Día'].astype(str)
         
         ira_labels = [f"{v:.1%}" if pd.notna(v) else "" for v in df_ira_ila['IRA']]
@@ -476,6 +481,7 @@ try:
 
         fig_time = go.Figure()
         
+        # IRA: Línea roja
         fig_time.add_trace(go.Scatter(
             x=eje_x_labels, 
             y=df_ira_ila['IRA'], 
@@ -488,6 +494,7 @@ try:
             marker=dict(size=8, color='#D32F2F')
         ))
         
+        # ILA: Línea azul
         fig_time.add_trace(go.Scatter(
             x=eje_x_labels, 
             y=df_ira_ila['ILA'], 
