@@ -211,28 +211,27 @@ ORDEN_MESES = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO',
                'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE']
 
 # ------------------------------------------------------------------------------
-# 2. CARGA Y PREPROCESAMIENTO DE DATOS CON MAPEO MÁS PRECISO
+# 2. CARGA Y PREPROCESAMIENTO DE DATOS CON MAPEO POSICIONAL
 # ------------------------------------------------------------------------------
 @st.cache_data
 def load_data():
     archivo = "Ajustes de inventario Natura 2026.xlsb"
     df = pd.read_excel(archivo, sheet_name=0, engine='pyxlsb')
     
-    # 1. Asignar nombres posicionales exactos por índice de columna para evitar confusiones
-    # Col K (índice 10) = Cantidad de diferencia (Cantidad Ajustada)
-    # Col AC (índice 28) = COSTO TOTAL (Imputación Contable)
-    
     cols = list(df.columns)
     
-    # Asegurar nombre estandarizado por posición de columna si existen las posiciones
+    # MAPEO POSICIONAL RIGUROSO
+    # Col K (índice 10) -> Cantidad de diferencia (Unidades Ajustadas)
+    # Col AC (índice 28) -> COSTO TOTAL (Imputación Contable)
     col_mapping = {}
-    if len(cols) > 10: col_mapping[cols[10]] = 'Cantidad de diferencia'
-    if len(cols) > 28: col_mapping[cols[28]] = 'COSTO TOTAL'
+    if len(cols) > 0:  col_mapping[cols[0]]  = 'Fe.contabilización'
     if len(cols) > 5:  col_mapping[cols[5]]  = 'Producto'
     if len(cols) > 6:  col_mapping[cols[6]]  = 'Descripción producto'
+    if len(cols) > 10: col_mapping[cols[10]] = 'Cantidad de diferencia'
     if len(cols) > 22: col_mapping[cols[22]] = 'MOTIVO'
     if len(cols) > 23: col_mapping[cols[23]] = 'PROCESO'
     if len(cols) > 26: col_mapping[cols[26]] = 'TIPO DE ALMACÉN 2'
+    if len(cols) > 28: col_mapping[cols[28]] = 'COSTO TOTAL'
     if len(cols) > 29: col_mapping[cols[29]] = 'CV'
     if len(cols) > 31: col_mapping[cols[31]] = 'IRA'
     if len(cols) > 32: col_mapping[cols[32]] = 'ILA'
@@ -253,11 +252,10 @@ def load_data():
         
     df['MES'] = pd.Categorical(df['MES'], categories=ORDEN_MESES, ordered=True)
 
-    # Conversión estricta de las columnas clave K (diferencia) y AC (monto)
+    # Conversión numérica de la Columna K y Columna AC
     df['Cantidad de diferencia'] = df['Cantidad de diferencia'].apply(clean_num)
     df['COSTO TOTAL'] = df['COSTO TOTAL'].apply(clean_num)
     
-    # Mapeo de porcentajes sin cero por defecto
     if 'IRA' in df.columns:
         df['IRA'] = df['IRA'].apply(clean_pct_raw)
     else:
@@ -268,14 +266,12 @@ def load_data():
     else:
         df['ILA'] = None
 
-    # Efecto Contable derivado de la Columna K (Cantidad de diferencia)
     df['Efecto_Contable'] = df['Cantidad de diferencia'].apply(calc_efecto)
     
-    # Limpieza de textos en columnas clave
     columnas_texto = ['MOTIVO', 'PROCESO', 'CATEGORIA', 'Producto', 'Descripción producto', 'CV', 'TIPO DE ALMACÉN 2']
     for col in columnas_texto:
         if col in df.columns:
-            df[col] = df[col].fillna('Sin Especificar').astype(str).str.strip().str.replace('\xa0', ' ')
+            df[col] = df[col].astype(str).str.strip().str.replace('\xa0', ' ')
             df[col] = df[col].str.replace(r'\.0$', '', regex=True)
             df[col] = df[col].replace({'nan': 'Sin Especificar', 'None': 'Sin Especificar', '': 'Sin Especificar'})
             
@@ -312,7 +308,6 @@ try:
     
     procesos = sorted([x for x in df['PROCESO'].unique() if x not in ['Sin Especificar', 'nan', 'None']])
     
-    # Selecciona por defecto "INVENTARIO CÍCLICO"
     default_proc = [p for p in procesos if 'CICLICO' in p.upper() or 'CÍCLICO' in p.upper()]
     if not default_proc:
         default_proc = procesos
@@ -509,17 +504,27 @@ try:
     # ==========================================================================
     elif selected_tab == "Drill-Down SKU":
         st.subheader("🔍 Drill-Down por SKU (Producto)")
-        sku_lista = sorted([x for x in df_f['Producto'].unique() if x not in ['Sin Especificar', 'nan', 'None']])
+        
+        # Filtrar lista para mostrar SKUs con ajustes (diferencia != 0)
+        df_f_ajustes = df_f[df_f['Cantidad de diferencia'] != 0]
+        sku_lista = sorted([x for x in df_f_ajustes['Producto'].unique() if str(x) not in ['Sin Especificar', 'nan', 'None']])
+        if not sku_lista:
+            sku_lista = sorted([x for x in df_f['Producto'].unique() if str(x) not in ['Sin Especificar', 'nan', 'None']])
+
         sku_seleccionado = st.selectbox("Seleccione el Producto / SKU:", sku_lista)
         
         df_sku = df_f[df_f['Producto'] == sku_seleccionado]
-        
+        df_sku_adj = df_sku[df_sku['Cantidad de diferencia'] != 0]
+        if df_sku_adj.empty:
+            df_sku_adj = df_sku
+
         if not df_sku.empty:
-            st.info(f"**Descripción:** {df_sku['Descripción producto'].iloc[0]}")
+            desc_val = df_sku['Descripción producto'].iloc[0]
+            st.info(f"**Descripción producto:** {desc_val}")
             
-            unidades_sku = float(df_sku['Cantidad de diferencia'].sum())
-            costo_sku = float(df_sku['COSTO TOTAL'].sum())
-            registros_sku = int(len(df_sku))
+            unidades_sku = float(df_sku_adj['Cantidad de diferencia'].sum())
+            costo_sku = float(df_sku_adj['COSTO TOTAL'].sum())
+            registros_sku = int(len(df_sku_adj))
             
             k1, k2, k3 = st.columns(3)
             with k1:
@@ -532,19 +537,19 @@ try:
             st.markdown("---")
             col_s1, col_s2 = st.columns(2)
             with col_s1:
-                df_sku_mot = df_sku.groupby(['MOTIVO', 'Efecto_Contable'])['Cantidad de diferencia'].sum().reset_index()
+                df_sku_mot = df_sku_adj.groupby(['MOTIVO', 'Efecto_Contable'])['Cantidad de diferencia'].sum().reset_index()
                 fig_mot = px.bar(df_sku_mot, x='MOTIVO', y='Cantidad de diferencia', color='Efecto_Contable', barmode='stack', color_discrete_map={'Faltante (-)': '#E63946', 'Sobrante (+)': '#2A9D8F'}, title="Ajuste por Motivo (Col. W)")
                 fig_mot.update_xaxes(type='category', tickangle=-45)
                 st.plotly_chart(fig_mot, use_container_width=True)
                 
             with col_s2:
-                df_sku_pr = df_sku.groupby(['PROCESO', 'Efecto_Contable'])['Cantidad de diferencia'].sum().reset_index()
+                df_sku_pr = df_sku_adj.groupby(['PROCESO', 'Efecto_Contable'])['Cantidad de diferencia'].sum().reset_index()
                 fig_pr = px.bar(df_sku_pr, x='PROCESO', y='Cantidad de diferencia', color='Efecto_Contable', barmode='stack', color_discrete_map={'Faltante (-)': '#E63946', 'Sobrante (+)': '#2A9D8F'}, title="Ajuste por Proceso (Col. X)")
                 fig_pr.update_xaxes(type='category', tickangle=-45)
                 st.plotly_chart(fig_pr, use_container_width=True)
                 
             st.markdown("#### Detalle de Imputación Contable (Columna AC)")
-            df_sku_display = df_sku[['Fe.contabilización', 'MOTIVO', 'PROCESO', 'TIPO DE ALMACÉN 2', 'Cantidad de diferencia', 'COSTO TOTAL']].copy()
+            df_sku_display = df_sku_adj[['Fe.contabilización', 'MOTIVO', 'PROCESO', 'TIPO DE ALMACÉN 2', 'Cantidad de diferencia', 'COSTO TOTAL']].copy()
             styled_df_sku = df_sku_display.style.format({'Cantidad de diferencia': fmt_numero, 'COSTO TOTAL': fmt_moneda})
             styled_df_sku = aplicar_estilos_styler(styled_df_sku, ['Cantidad de diferencia', 'COSTO TOTAL'])
             st.dataframe(styled_df_sku, use_container_width=True, hide_index=True)
@@ -554,15 +559,28 @@ try:
     # ==========================================================================
     elif selected_tab == "Drill-Down CV":
         st.subheader("🏷️ Drill-Down por Código de Venta (CV - Columna AD)")
-        cv_lista = sorted([x for x in df_f['CV'].unique() if x not in ['Sin Especificar', 'nan', 'None']])
+        
+        df_f_ajustes_cv = df_f[df_f['Cantidad de diferencia'] != 0]
+        cv_lista = sorted([x for x in df_f_ajustes_cv['CV'].unique() if str(x) not in ['Sin Especificar', 'nan', 'None']])
+        if not cv_lista:
+            cv_lista = sorted([x for x in df_f['CV'].unique() if str(x) not in ['Sin Especificar', 'nan', 'None']])
+
         cv_seleccionado = st.selectbox("Seleccione el Código de Venta (CV):", cv_lista)
         
         df_cv = df_f[df_f['CV'] == cv_seleccionado]
+        df_cv_adj = df_cv[df_cv['Cantidad de diferencia'] != 0]
+        if df_cv_adj.empty:
+            df_cv_adj = df_cv
         
         if not df_cv.empty:
-            costo_cv = float(df_cv['COSTO TOTAL'].sum())
-            unidades_cv = float(df_cv['Cantidad de diferencia'].sum())
-            registros_cv = int(len(df_cv))
+            descs = df_cv['Descripción producto'].unique()
+            descs_str = ", ".join([str(d) for d in descs if str(d) not in ['Sin Especificar', 'nan', 'None']])
+            if descs_str:
+                st.info(f"**Descripción producto:** {descs_str}")
+
+            costo_cv = float(df_cv_adj['COSTO TOTAL'].sum())
+            unidades_cv = float(df_cv_adj['Cantidad de diferencia'].sum())
+            registros_cv = int(len(df_cv_adj))
             
             kc1, kc2, kc3 = st.columns(3)
             with kc1:
@@ -575,15 +593,15 @@ try:
             st.markdown("---")
             col_c1, col_c2 = st.columns(2)
             with col_c1:
-                fig_cv_w = px.pie(df_cv.groupby('MOTIVO')['COSTO TOTAL'].apply(lambda x: x.abs().sum()).reset_index(), values='COSTO TOTAL', names='MOTIVO', title="Costo por Motivo (Col W)")
+                fig_cv_w = px.pie(df_cv_adj.groupby('MOTIVO')['COSTO TOTAL'].apply(lambda x: x.abs().sum()).reset_index(), values='COSTO TOTAL', names='MOTIVO', title="Costo por Motivo (Col W)")
                 st.plotly_chart(fig_cv_w, use_container_width=True)
                 
             with col_c2:
-                fig_cv_x = px.pie(df_cv.groupby('PROCESO')['COSTO TOTAL'].apply(lambda x: x.abs().sum()).reset_index(), values='COSTO TOTAL', names='PROCESO', title="Costo por Proceso (Col X)")
+                fig_cv_x = px.pie(df_cv_adj.groupby('PROCESO')['COSTO TOTAL'].apply(lambda x: x.abs().sum()).reset_index(), values='COSTO TOTAL', names='PROCESO', title="Costo por Proceso (Col X)")
                 st.plotly_chart(fig_cv_x, use_container_width=True)
                 
             st.markdown("#### Detalle Contable del CV Seleccionado")
-            df_cv_display = df_cv[['Fe.contabilización', 'Producto', 'Descripción producto', 'MOTIVO', 'PROCESO', 'TIPO DE ALMACÉN 2', 'Cantidad de diferencia', 'COSTO TOTAL']].copy()
+            df_cv_display = df_cv_adj[['Fe.contabilización', 'Producto', 'Descripción producto', 'MOTIVO', 'PROCESO', 'TIPO DE ALMACÉN 2', 'Cantidad de diferencia', 'COSTO TOTAL']].copy()
             styled_df_cv = df_cv_display.style.format({'Cantidad de diferencia': fmt_numero, 'COSTO TOTAL': fmt_moneda})
             styled_df_cv = aplicar_estilos_styler(styled_df_cv, ['Cantidad de diferencia', 'COSTO TOTAL'])
             st.dataframe(styled_df_cv, use_container_width=True, hide_index=True)
