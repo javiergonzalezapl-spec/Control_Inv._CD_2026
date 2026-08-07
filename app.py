@@ -65,10 +65,9 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ------------------------------------------------------------------------------
-# FUNCIONES DE FORMATO Y LIMPIEZA NUMÉRICA POR COLUMNA
+# FUNCIONES DE FORMATO Y LIMPIEZA NUMÉRICA
 # ------------------------------------------------------------------------------
 def clean_num(val):
-    """Limpia números de Excel sin perder signos ni decimales."""
     if pd.isna(val):
         return 0.0
     if isinstance(val, (int, float)):
@@ -220,9 +219,6 @@ def load_data():
     
     cols = list(df.columns)
     
-    # MAPEO POSICIONAL RIGUROSO
-    # Col K (índice 10) -> Cantidad de diferencia (Unidades Ajustadas)
-    # Col AC (índice 28) -> COSTO TOTAL (Imputación Contable)
     col_mapping = {}
     if len(cols) > 0:  col_mapping[cols[0]]  = 'Fe.contabilización'
     if len(cols) > 5:  col_mapping[cols[5]]  = 'Producto'
@@ -240,7 +236,6 @@ def load_data():
     df = df.rename(columns=col_mapping)
     df = df.loc[:, ~df.columns.duplicated(keep='first')].copy()
 
-    # Formato de fechas
     df['Fe.contabilización'] = parse_dates_robust(df['Fe.contabilización'])
     df['Fecha_Día'] = df['Fe.contabilización'].dt.date
     df['Semana_Num'] = pd.to_numeric(df['Fe.contabilización'].dt.isocalendar().week, errors='coerce')
@@ -252,7 +247,6 @@ def load_data():
         
     df['MES'] = pd.Categorical(df['MES'], categories=ORDEN_MESES, ordered=True)
 
-    # Conversión numérica de la Columna K y Columna AC
     df['Cantidad de diferencia'] = df['Cantidad de diferencia'].apply(clean_num)
     df['COSTO TOTAL'] = df['COSTO TOTAL'].apply(clean_num)
     
@@ -505,7 +499,6 @@ try:
     elif selected_tab == "Drill-Down SKU":
         st.subheader("🔍 Drill-Down por SKU (Producto)")
         
-        # Filtrar lista para mostrar SKUs con ajustes (diferencia != 0)
         df_f_ajustes = df_f[df_f['Cantidad de diferencia'] != 0]
         sku_lista = sorted([x for x in df_f_ajustes['Producto'].unique() if str(x) not in ['Sin Especificar', 'nan', 'None']])
         if not sku_lista:
@@ -519,18 +512,19 @@ try:
             df_sku_adj = df_sku
 
         if not df_sku.empty:
-            desc_val = df_sku['Descripción producto'].iloc[0]
+            desc_val = df_sku_adj['Descripción producto'].iloc[0] if not df_sku_adj.empty else df_sku['Descripción producto'].iloc[0]
             st.info(f"**Descripción producto:** {desc_val}")
             
             unidades_sku = float(df_sku_adj['Cantidad de diferencia'].sum())
             costo_sku = float(df_sku_adj['COSTO TOTAL'].sum())
             registros_sku = int(len(df_sku_adj))
             
+            # ORDEN UNIFICADO: 1) Imputación Contable (Izq), 2) Unidades Ajustadas (Centro), 3) Hitos (Der)
             k1, k2, k3 = st.columns(3)
             with k1:
-                render_kpi_color("Unidades Ajustadas (Col. K)", unidades_sku, es_moneda=False)
-            with k2:
                 render_kpi_color("Imputación Contable Total (Col. AC)", costo_sku, es_moneda=True)
+            with k2:
+                render_kpi_color("Unidades Ajustadas (Col. K)", unidades_sku, es_moneda=False)
             with k3:
                 render_kpi_color("Ajustes de Inventario (Hitos)", registros_sku, es_moneda=False)
             
@@ -573,15 +567,20 @@ try:
             df_cv_adj = df_cv
         
         if not df_cv.empty:
-            descs = df_cv['Descripción producto'].unique()
-            descs_str = ", ".join([str(d) for d in descs if str(d) not in ['Sin Especificar', 'nan', 'None']])
-            if descs_str:
-                st.info(f"**Descripción producto:** {descs_str}")
+            # Obtener únicamente la descripción principal de los registros con ajuste
+            descs_validas = df_cv_adj[df_cv_adj['Descripción producto'].notna() & (~df_cv_adj['Descripción producto'].isin(['Sin Especificar', 'nan', 'None', '']))]['Descripción producto']
+            if not descs_validas.empty:
+                desc_principal = descs_validas.value_counts().index[0]
+            else:
+                desc_principal = df_cv['Descripción producto'].iloc[0]
+                
+            st.info(f"**Descripción producto:** {desc_principal}")
 
             costo_cv = float(df_cv_adj['COSTO TOTAL'].sum())
             unidades_cv = float(df_cv_adj['Cantidad de diferencia'].sum())
             registros_cv = int(len(df_cv_adj))
             
+            # ORDEN UNIFICADO: 1) Imputación Contable (Izq), 2) Unidades Ajustadas (Centro), 3) Hitos (Der)
             kc1, kc2, kc3 = st.columns(3)
             with kc1:
                 render_kpi_color("Imputación Contable Total (Col. AC)", costo_cv, es_moneda=True)
