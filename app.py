@@ -65,7 +65,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ------------------------------------------------------------------------------
-# FUNCIONES DE FORMATO Y LIMPIEZA NUMÉRICA POR COLUMNA
+# FUNCIONES DE FORMATO Y LIMPIEZA NUMÉRICA
 # ------------------------------------------------------------------------------
 def clean_num(val):
     if pd.isna(val):
@@ -217,7 +217,7 @@ ORDEN_MESES = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO',
                'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE']
 
 # ------------------------------------------------------------------------------
-# 2. CARGA Y PREPROCESAMIENTO DE DATOS CON MAPEO POSICIONAL Y COLUMNAS TARGET
+# 2. CARGA Y PREPROCESAMIENTO DE DATOS CON MAPEO POSICIONAL
 # ------------------------------------------------------------------------------
 @st.cache_data
 def load_data():
@@ -226,11 +226,6 @@ def load_data():
     
     cols = list(df.columns)
     
-    # MAPEO POSICIONAL RIGUROSO
-    # Col K (10) -> Cantidad de diferencia
-    # Col AC (28) -> COSTO TOTAL
-    # Col AI (34) -> TARGET IRA
-    # Col AJ (35) -> TARGET ILA
     col_mapping = {}
     if len(cols) > 0:  col_mapping[cols[0]]  = 'Fe.contabilización'
     if len(cols) > 5:  col_mapping[cols[5]]  = 'Producto'
@@ -249,7 +244,6 @@ def load_data():
 
     df = df.rename(columns=col_mapping)
     
-    # Búsqueda por nombre si no estaban en las posiciones esperadas
     for c in df.columns:
         if 'TARGET' in str(c).upper() and 'IRA' in str(c).upper():
             df = df.rename(columns={c: 'TARGET IRA'})
@@ -458,7 +452,7 @@ try:
         st.plotly_chart(fig_bar_alm2, use_container_width=True)
 
     # ==========================================================================
-    # PESTAÑA 2: IRA E ILA SEPARADOS CON TARGET
+    # PESTAÑA 2: IRA E ILA SEPARADOS VERTICALMENTE CON ANCHO COMPLETO
     # ==========================================================================
     elif selected_tab == "Indicadores IRA/ILA":
         st.subheader("🎯 Exactitud de Inventario (IRA) y Localización (ILA)")
@@ -508,7 +502,7 @@ try:
         ila_labels = [f"{v:.1%}" if pd.notna(v) else "" for v in df_ira_ila['ILA']]
 
         # ----------------------------------------------------------------------
-        # GRÁFICO 1: IRA vs TARGET IRA
+        # GRÁFICO 1: IRA vs TARGET IRA (ANCHO COMPLETO)
         # ----------------------------------------------------------------------
         fig_ira = go.Figure()
         
@@ -542,13 +536,18 @@ try:
             title=f"Evolución IRA vs Target por {granularidad}", 
             yaxis_title="Porcentaje (%)", 
             hovermode="x unified",
+            height=400,
             margin=dict(t=50, b=50, l=40, r=40)
         )
         fig_ira.update_yaxes(tickformat=".0%", automargin=True)
         fig_ira.update_xaxes(tickangle=-45)
 
+        st.plotly_chart(fig_ira, use_container_width=True)
+
+        st.divider()
+
         # ----------------------------------------------------------------------
-        # GRÁFICO 2: ILA vs TARGET ILA
+        # GRÁFICO 2: ILA vs TARGET ILA (ANCHO COMPLETO, UBICADO ABAJO)
         # ----------------------------------------------------------------------
         fig_ila = go.Figure()
         
@@ -582,16 +581,13 @@ try:
             title=f"Evolución ILA vs Target por {granularidad}", 
             yaxis_title="Porcentaje (%)", 
             hovermode="x unified",
+            height=400,
             margin=dict(t=50, b=50, l=40, r=40)
         )
         fig_ila.update_yaxes(tickformat=".0%", automargin=True)
         fig_ila.update_xaxes(tickangle=-45)
 
-        col_g1, col_g2 = st.columns(2)
-        with col_g1:
-            st.plotly_chart(fig_ira, use_container_width=True)
-        with col_g2:
-            st.plotly_chart(fig_ila, use_container_width=True)
+        st.plotly_chart(fig_ila, use_container_width=True)
         
         with st.expander("📄 Ver detalle numérico de IRA e ILA"):
             fmt_map = {'IRA': '{:.2%}', 'ILA': '{:.2%}'}
@@ -625,7 +621,6 @@ try:
             costo_sku = float(df_sku_adj['COSTO TOTAL'].sum())
             registros_sku = int(len(df_sku_adj))
             
-            # ORDEN DE TARJETAS KPI: 1) Imputación (Izq), 2) Unidades (Centro), 3) Hitos (Der)
             k1, k2, k3 = st.columns(3)
             with k1:
                 render_kpi_color("Imputación Contable Total (Col. AC)", costo_sku, es_moneda=True)
@@ -685,7 +680,6 @@ try:
             unidades_cv = float(df_cv_adj['Cantidad de diferencia'].sum())
             registros_cv = int(len(df_cv_adj))
             
-            # ORDEN DE TARJETAS KPI: 1) Imputación (Izq), 2) Unidades (Centro), 3) Hitos (Der)
             kc1, kc2, kc3 = st.columns(3)
             with kc1:
                 render_kpi_color("Imputación Contable Total (Col. AC)", costo_cv, es_moneda=True)
