@@ -65,7 +65,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ------------------------------------------------------------------------------
-# FUNCIONES DE FORMATO Y LIMPIEZA NUMÉRICA
+# FUNCIONES DE FORMATO Y LIMPIEZA NUMÉRICA POR COLUMNA
 # ------------------------------------------------------------------------------
 def clean_num(val):
     if pd.isna(val):
@@ -217,7 +217,7 @@ ORDEN_MESES = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO',
                'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE']
 
 # ------------------------------------------------------------------------------
-# 2. CARGA Y PREPROCESAMIENTO DE DATOS CON MAPEO POSICIONAL
+# 2. CARGA Y PREPROCESAMIENTO DE DATOS CON MAPEO POSICIONAL Y COLUMNAS TARGET
 # ------------------------------------------------------------------------------
 @st.cache_data
 def load_data():
@@ -226,6 +226,11 @@ def load_data():
     
     cols = list(df.columns)
     
+    # MAPEO POSICIONAL RIGUROSO
+    # Col K (10) -> Cantidad de diferencia
+    # Col AC (28) -> COSTO TOTAL
+    # Col AI (34) -> TARGET IRA
+    # Col AJ (35) -> TARGET ILA
     col_mapping = {}
     if len(cols) > 0:  col_mapping[cols[0]]  = 'Fe.contabilización'
     if len(cols) > 5:  col_mapping[cols[5]]  = 'Producto'
@@ -239,8 +244,18 @@ def load_data():
     if len(cols) > 31: col_mapping[cols[31]] = 'IRA'
     if len(cols) > 32: col_mapping[cols[32]] = 'ILA'
     if len(cols) > 33: col_mapping[cols[33]] = 'MES'
+    if len(cols) > 34: col_mapping[cols[34]] = 'TARGET IRA'
+    if len(cols) > 35: col_mapping[cols[35]] = 'TARGET ILA'
 
     df = df.rename(columns=col_mapping)
+    
+    # Búsqueda por nombre si no estaban en las posiciones esperadas
+    for c in df.columns:
+        if 'TARGET' in str(c).upper() and 'IRA' in str(c).upper():
+            df = df.rename(columns={c: 'TARGET IRA'})
+        elif 'TARGET' in str(c).upper() and 'ILA' in str(c).upper():
+            df = df.rename(columns={c: 'TARGET ILA'})
+
     df = df.loc[:, ~df.columns.duplicated(keep='first')].copy()
 
     df['Fe.contabilización'] = parse_dates_robust(df['Fe.contabilización'])
@@ -266,6 +281,16 @@ def load_data():
         df['ILA'] = df['ILA'].apply(clean_pct_raw)
     else:
         df['ILA'] = None
+
+    if 'TARGET IRA' in df.columns:
+        df['TARGET IRA'] = df['TARGET IRA'].apply(clean_pct_raw)
+    else:
+        df['TARGET IRA'] = None
+
+    if 'TARGET ILA' in df.columns:
+        df['TARGET ILA'] = df['TARGET ILA'].apply(clean_pct_raw)
+    else:
+        df['TARGET ILA'] = None
 
     df['Efecto_Contable'] = df['Cantidad de diferencia'].apply(calc_efecto)
     
@@ -433,19 +458,17 @@ try:
         st.plotly_chart(fig_bar_alm2, use_container_width=True)
 
     # ==========================================================================
-    # PESTAÑA 2: IRA E ILA CON TARJETAS ACUMULADAS A LA DERECHA
+    # PESTAÑA 2: IRA E ILA SEPARADOS CON TARGET
     # ==========================================================================
     elif selected_tab == "Indicadores IRA/ILA":
         st.subheader("🎯 Exactitud de Inventario (IRA) y Localización (ILA)")
         
-        # Cálculo de IRA e ILA acumulados del período filtrado
         ira_series = df_f['IRA'].dropna()
         ila_series = df_f['ILA'].dropna()
         
         ira_acum = float(ira_series.mean()) if not ira_series.empty else 0.0
         ila_acum = float(ila_series.mean()) if not ila_series.empty else 0.0
 
-        # Disposición en columnas: Selector de tendencia (izq) y KPIs Acumulados (der)
         col_ctrl, col_kpi_ira, col_kpi_ila = st.columns([2, 1, 1])
         
         with col_ctrl:
@@ -459,34 +482,41 @@ try:
         
         st.markdown("---")
         
+        cols_groupby = ['IRA', 'ILA']
+        if 'TARGET IRA' in df_f.columns: cols_groupby.append('TARGET IRA')
+        if 'TARGET ILA' in df_f.columns: cols_groupby.append('TARGET ILA')
+
         if granularidad == "Mes":
             col_tiempo = 'MES'
-            df_ira_ila = df_f.groupby(col_tiempo, observed=False)[['IRA', 'ILA']].mean().reset_index()
+            df_ira_ila = df_f.groupby(col_tiempo, observed=False)[cols_groupby].mean().reset_index()
             df_ira_ila = df_ira_ila.dropna(subset=['IRA', 'ILA'], how='all').sort_values('MES')
             eje_x_labels = df_ira_ila['MES'].astype(str)
             
         elif granularidad == "Semana":
             col_tiempo = 'Semana_Num'
-            df_ira_ila = df_f.groupby(col_tiempo, observed=False)[['IRA', 'ILA']].mean().reset_index()
+            df_ira_ila = df_f.groupby(col_tiempo, observed=False)[cols_groupby].mean().reset_index()
             df_ira_ila = df_ira_ila.dropna(subset=['IRA', 'ILA'], how='all').sort_values('Semana_Num')
             eje_x_labels = "Sem " + df_ira_ila['Semana_Num'].astype(int).astype(str)
             
         else:
             col_tiempo = 'Fecha_Día'
-            df_ira_ila = df_f.groupby(col_tiempo, observed=False)[['IRA', 'ILA']].mean().reset_index()
+            df_ira_ila = df_f.groupby(col_tiempo, observed=False)[cols_groupby].mean().reset_index()
             df_ira_ila = df_ira_ila.dropna(subset=['IRA', 'ILA'], how='all').sort_values('Fecha_Día')
             eje_x_labels = df_ira_ila['Fecha_Día'].astype(str)
         
         ira_labels = [f"{v:.1%}" if pd.notna(v) else "" for v in df_ira_ila['IRA']]
         ila_labels = [f"{v:.1%}" if pd.notna(v) else "" for v in df_ira_ila['ILA']]
 
-        fig_time = go.Figure()
+        # ----------------------------------------------------------------------
+        # GRÁFICO 1: IRA vs TARGET IRA
+        # ----------------------------------------------------------------------
+        fig_ira = go.Figure()
         
-        fig_time.add_trace(go.Scatter(
+        fig_ira.add_trace(go.Scatter(
             x=eje_x_labels, 
             y=df_ira_ila['IRA'], 
             mode='lines+markers+text', 
-            name='IRA (%)', 
+            name='IRA Real (%)', 
             text=ira_labels,
             textposition="top center",
             textfont=dict(size=11, color='#D32F2F', family="sans-serif"),
@@ -494,30 +524,80 @@ try:
             marker=dict(size=8, color='#D32F2F')
         ))
         
-        fig_time.add_trace(go.Scatter(
+        if 'TARGET IRA' in df_ira_ila.columns and df_ira_ila['TARGET IRA'].notna().any():
+            target_ira_labels = [f"{v:.1%}" if pd.notna(v) else "" for v in df_ira_ila['TARGET IRA']]
+            fig_ira.add_trace(go.Scatter(
+                x=eje_x_labels, 
+                y=df_ira_ila['TARGET IRA'], 
+                mode='lines+markers+text', 
+                name='Target IRA (%)', 
+                text=target_ira_labels,
+                textposition="bottom center",
+                textfont=dict(size=10, color='#555555', family="sans-serif"),
+                line=dict(color='#888888', width=2, dash='dash'),
+                marker=dict(size=6, color='#888888')
+            ))
+            
+        fig_ira.update_layout(
+            title=f"Evolución IRA vs Target por {granularidad}", 
+            yaxis_title="Porcentaje (%)", 
+            hovermode="x unified",
+            margin=dict(t=50, b=50, l=40, r=40)
+        )
+        fig_ira.update_yaxes(tickformat=".0%", automargin=True)
+        fig_ira.update_xaxes(tickangle=-45)
+
+        # ----------------------------------------------------------------------
+        # GRÁFICO 2: ILA vs TARGET ILA
+        # ----------------------------------------------------------------------
+        fig_ila = go.Figure()
+        
+        fig_ila.add_trace(go.Scatter(
             x=eje_x_labels, 
             y=df_ira_ila['ILA'], 
             mode='lines+markers+text', 
-            name='ILA (%)', 
+            name='ILA Real (%)', 
             text=ila_labels,
-            textposition="bottom center",
+            textposition="top center",
             textfont=dict(size=11, color='#1976D2', family="sans-serif"),
             line=dict(color='#1976D2', width=3),
             marker=dict(size=8, color='#1976D2')
         ))
         
-        fig_time.update_layout(
-            title=f"Evolución Cronológica por {granularidad}", 
+        if 'TARGET ILA' in df_ira_ila.columns and df_ira_ila['TARGET ILA'].notna().any():
+            target_ila_labels = [f"{v:.1%}" if pd.notna(v) else "" for v in df_ira_ila['TARGET ILA']]
+            fig_ila.add_trace(go.Scatter(
+                x=eje_x_labels, 
+                y=df_ira_ila['TARGET ILA'], 
+                mode='lines+markers+text', 
+                name='Target ILA (%)', 
+                text=target_ila_labels,
+                textposition="bottom center",
+                textfont=dict(size=10, color='#555555', family="sans-serif"),
+                line=dict(color='#888888', width=2, dash='dash'),
+                marker=dict(size=6, color='#888888')
+            ))
+            
+        fig_ila.update_layout(
+            title=f"Evolución ILA vs Target por {granularidad}", 
             yaxis_title="Porcentaje (%)", 
             hovermode="x unified",
             margin=dict(t=50, b=50, l=40, r=40)
         )
-        fig_time.update_yaxes(tickformat=".0%", automargin=True)
-        fig_time.update_xaxes(tickangle=-45)
-        st.plotly_chart(fig_time, use_container_width=True)
+        fig_ila.update_yaxes(tickformat=".0%", automargin=True)
+        fig_ila.update_xaxes(tickangle=-45)
+
+        col_g1, col_g2 = st.columns(2)
+        with col_g1:
+            st.plotly_chart(fig_ira, use_container_width=True)
+        with col_g2:
+            st.plotly_chart(fig_ila, use_container_width=True)
         
         with st.expander("📄 Ver detalle numérico de IRA e ILA"):
-            st.dataframe(df_ira_ila.style.format({'IRA': '{:.2%}', 'ILA': '{:.2%}'}), hide_index=True)
+            fmt_map = {'IRA': '{:.2%}', 'ILA': '{:.2%}'}
+            if 'TARGET IRA' in df_ira_ila.columns: fmt_map['TARGET IRA'] = '{:.2%}'
+            if 'TARGET ILA' in df_ira_ila.columns: fmt_map['TARGET ILA'] = '{:.2%}'
+            st.dataframe(df_ira_ila.style.format(fmt_map), hide_index=True)
 
     # ==========================================================================
     # PESTAÑA 3: DRILL-DOWN SKU (PRODUCTO)
@@ -545,6 +625,7 @@ try:
             costo_sku = float(df_sku_adj['COSTO TOTAL'].sum())
             registros_sku = int(len(df_sku_adj))
             
+            # ORDEN DE TARJETAS KPI: 1) Imputación (Izq), 2) Unidades (Centro), 3) Hitos (Der)
             k1, k2, k3 = st.columns(3)
             with k1:
                 render_kpi_color("Imputación Contable Total (Col. AC)", costo_sku, es_moneda=True)
@@ -604,6 +685,7 @@ try:
             unidades_cv = float(df_cv_adj['Cantidad de diferencia'].sum())
             registros_cv = int(len(df_cv_adj))
             
+            # ORDEN DE TARJETAS KPI: 1) Imputación (Izq), 2) Unidades (Centro), 3) Hitos (Der)
             kc1, kc2, kc3 = st.columns(3)
             with kc1:
                 render_kpi_color("Imputación Contable Total (Col. AC)", costo_cv, es_moneda=True)
