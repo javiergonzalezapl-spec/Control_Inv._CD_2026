@@ -469,7 +469,7 @@ try:
             granularidad = st.radio("Ver tendencia por:", ["Mes", "Semana", "Día"], horizontal=True)
             
         with col_kpi_ira:
-            render_kpi_color("IRA Acumulado", ira_acum, es_porcentaje=True, color_override="#D32F2F")
+            render_kpi_color("IRA Acumulado", ira_acum, es_porcentaje=True, color_override="#1976D2")
             
         with col_kpi_ila:
             render_kpi_color("ILA Acumulado", ila_acum, es_porcentaje=True, color_override="#1976D2")
@@ -502,7 +502,7 @@ try:
         ila_labels = [f"{v:.1%}" if pd.notna(v) else "" for v in df_ira_ila['ILA']]
 
         # ----------------------------------------------------------------------
-        # GRÁFICO 1: IRA vs TARGET IRA (ANCHO COMPLETO)
+        # GRÁFICO 1: IRA vs TARGET IRA (ANCHO COMPLETO - IRA EN AZUL #1976D2, TARGET EN NARANJA VISTOSO #FF8F00)
         # ----------------------------------------------------------------------
         fig_ira = go.Figure()
         
@@ -513,9 +513,9 @@ try:
             name='IRA Real (%)', 
             text=ira_labels,
             textposition="top center",
-            textfont=dict(size=11, color='#D32F2F', family="sans-serif"),
-            line=dict(color='#D32F2F', width=3),
-            marker=dict(size=8, color='#D32F2F')
+            textfont=dict(size=11, color='#1976D2', family="sans-serif"),
+            line=dict(color='#1976D2', width=3),
+            marker=dict(size=8, color='#1976D2')
         ))
         
         if 'TARGET IRA' in df_ira_ila.columns and df_ira_ila['TARGET IRA'].notna().any():
@@ -527,9 +527,9 @@ try:
                 name='Target IRA (%)', 
                 text=target_ira_labels,
                 textposition="bottom center",
-                textfont=dict(size=10, color='#555555', family="sans-serif"),
-                line=dict(color='#888888', width=2, dash='dash'),
-                marker=dict(size=6, color='#888888')
+                textfont=dict(size=10, color='#FF8F00', family="sans-serif"),
+                line=dict(color='#FF8F00', width=2.5, dash='dash'),
+                marker=dict(size=6, color='#FF8F00')
             ))
             
         fig_ira.update_layout(
@@ -572,9 +572,9 @@ try:
                 name='Target ILA (%)', 
                 text=target_ila_labels,
                 textposition="bottom center",
-                textfont=dict(size=10, color='#555555', family="sans-serif"),
-                line=dict(color='#888888', width=2, dash='dash'),
-                marker=dict(size=6, color='#888888')
+                textfont=dict(size=10, color='#FF8F00', family="sans-serif"),
+                line=dict(color='#FF8F00', width=2.5, dash='dash'),
+                marker=dict(size=6, color='#FF8F00')
             ))
             
         fig_ila.update_layout(
