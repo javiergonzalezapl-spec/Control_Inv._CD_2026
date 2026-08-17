@@ -518,7 +518,7 @@ try:
             text=ira_labels,
             textposition="top center",
             textfont=dict(size=11, color='#1976D2', family="sans-serif"),
-            line=dict(color='#1976D2', width=3),
+            line=dict(color='#1976D2', width=4),
             marker=dict(size=8, color='#1976D2')
         ))
         
@@ -578,7 +578,7 @@ try:
             text=ila_labels,
             textposition="top center",
             textfont=dict(size=11, color='#1976D2', family="sans-serif"),
-            line=dict(color='#1976D2', width=3),
+            line=dict(color='#1976D2', width=4),
             marker=dict(size=8, color='#1976D2')
         ))
         
