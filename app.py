@@ -503,7 +503,7 @@ try:
         with c_ira1:
             render_kpi_color("IRA Acumulado", ira_acum, es_porcentaje=True, color_override="#1976D2")
         with c_ira2:
-            render_kpi_color("TARGET IRA", target_ira_acum, es_porcentaje=True, color_override="#FF8F00")
+            render_kpi_color("TARGET IRA", target_ira_acum, es_porcentaje=True, color_override="#D32F2F")
 
         ira_labels = [f"{v:.1%}" if pd.notna(v) else "" for v in df_ira_ila['IRA']]
         target_ira_labels = [f"{v:.1%}" if pd.notna(v) else "" for v in df_ira_ila['TARGET IRA']]
@@ -563,7 +563,7 @@ try:
         with c_ila1:
             render_kpi_color("ILA Acumulado", ila_acum, es_porcentaje=True, color_override="#1976D2")
         with c_ila2:
-            render_kpi_color("TARGET ILA", target_ila_acum, es_porcentaje=True, color_override="#FF8F00")
+            render_kpi_color("TARGET ILA", target_ila_acum, es_porcentaje=True, color_override="#D32F2F")
 
         ila_labels = [f"{v:.1%}" if pd.notna(v) else "" for v in df_ira_ila['ILA']]
         target_ila_labels = [f"{v:.1%}" if pd.notna(v) else "" for v in df_ira_ila['TARGET ILA']]
