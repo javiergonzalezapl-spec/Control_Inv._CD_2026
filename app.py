@@ -529,9 +529,9 @@ try:
             name='Target IRA (%)', 
             text=target_ira_labels,
             textposition="bottom center",
-            textfont=dict(size=10, color='#FF8F00', family="sans-serif"),
-            line=dict(color='#FF8F00', width=2.5, dash='dash'),
-            marker=dict(size=6, color='#FF8F00')
+            textfont=dict(size=10, color='#D32F2F', family="sans-serif"),
+            line=dict(color='#D32F2F', width=2.5, dash='dash'),
+            marker=dict(size=6, color='#D32F2F')
         ))
             
         fig_ira.update_layout(
@@ -589,9 +589,9 @@ try:
             name='Target ILA (%)', 
             text=target_ila_labels,
             textposition="bottom center",
-            textfont=dict(size=10, color='#FF8F00', family="sans-serif"),
-            line=dict(color='#FF8F00', width=2.5, dash='dash'),
-            marker=dict(size=6, color='#FF8F00')
+            textfont=dict(size=10, color='#D32F2F', family="sans-serif"),
+            line=dict(color='#D32F2F', width=2.5, dash='dash'),
+            marker=dict(size=6, color='#D32F2F')
         ))
             
         fig_ila.update_layout(
