@@ -6,6 +6,13 @@ from streamlit_option_menu import option_menu
 import io
 import re
 
+# Configuración global para responder limpiamente en teléfonos
+PLOTLY_CONFIG = {
+    'displaylogo': False,
+    'responsive': True,
+    'modeBarButtonsToRemove': ['lasso2d', 'select2d']
+}
+
 # ------------------------------------------------------------------------------
 # 0. CONTROL DE ACCESO POR CONTRASEÑA
 # ------------------------------------------------------------------------------
@@ -65,7 +72,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ------------------------------------------------------------------------------
-# FUNCIONES DE FORMATO Y LIMPIEZA NUMÉRICA
+# FUNCIONES DE FORMATO Y LIMPIEZA NUMÉRICA POR COLUMNA
 # ------------------------------------------------------------------------------
 def clean_num(val):
     if pd.isna(val):
@@ -392,7 +399,7 @@ try:
             
         st.divider()
         
-        st.markdown("#### 🌊 Reconciliación Contable Dinámica (Cascada)")
+        st.markdown("##### 🌊 Reconciliación Contable Dinámica (Cascada)")
         fig_waterfall = go.Figure(go.Waterfall(
             name="Contabilidad", orientation="v",
             measure=["relative", "relative", "total"],
@@ -405,61 +412,77 @@ try:
             increasing={"marker": {"color": "#2A9D8F"}},
             totals={"marker": {"color": "#264653"}}
         ))
-        fig_waterfall.update_layout(title="Flujo de Ajustes Financieros ($)", yaxis_tickformat="$,.0f")
-        st.plotly_chart(fig_waterfall, use_container_width=True)
+        fig_waterfall.update_layout(yaxis_tickformat="$,.0f", margin=dict(t=20, b=30, l=30, r=30))
+        st.plotly_chart(fig_waterfall, use_container_width=True, config=PLOTLY_CONFIG)
 
         st.divider()
         
         col_m, col_p = st.columns(2)
         with col_m:
-            st.markdown("#### Imputación por Mes (Acumulado)")
+            st.markdown("##### Imputación por Mes (Acumulado)")
             df_mes_bar = df_f.groupby(['MES', 'Efecto_Contable'], observed=False)['COSTO TOTAL'].apply(lambda x: x.abs().sum()).reset_index()
             fig_bar_mes = px.bar(
                 df_mes_bar, x='MES', y='COSTO TOTAL', color='Efecto_Contable',
                 barmode='stack',
-                color_discrete_map={'Faltante (-)': '#E63946', 'Sobrante (+)': '#2A9D8F'},
-                title="Monto Acumulado por Mes"
+                color_discrete_map={'Faltante (-)': '#E63946', 'Sobrante (+)': '#2A9D8F'}
             )
             fig_bar_mes.update_xaxes(type='category', title_text="Mes", tickangle=-45)
             fig_bar_mes.update_yaxes(tickformat="$,.0f", title_text="Impacto Financiero ($)")
-            st.plotly_chart(fig_bar_mes, use_container_width=True)
+            fig_bar_mes.update_layout(margin=dict(t=20, b=30, l=30, r=30))
+            st.plotly_chart(fig_bar_mes, use_container_width=True, config=PLOTLY_CONFIG)
 
         with col_p:
-            st.markdown("#### Impacto por Proceso (Acumulado)")
+            st.markdown("##### Impacto por Proceso (Acumulado)")
             df_proc_bar = df_f.groupby(['PROCESO', 'Efecto_Contable'])['COSTO TOTAL'].apply(lambda x: x.abs().sum()).reset_index()
             fig_bar_proc = px.bar(
                 df_proc_bar, x='PROCESO', y='COSTO TOTAL', color='Efecto_Contable',
                 barmode='stack',
-                color_discrete_map={'Faltante (-)': '#E63946', 'Sobrante (+)': '#2A9D8F'},
-                title="Monto Acumulado por Proceso"
+                color_discrete_map={'Faltante (-)': '#E63946', 'Sobrante (+)': '#2A9D8F'}
             )
             fig_bar_proc.update_xaxes(type='category', title_text="Proceso", tickangle=-45)
             fig_bar_proc.update_yaxes(tickformat="$,.0f", title_text="Impacto Financiero ($)")
-            st.plotly_chart(fig_bar_proc, use_container_width=True)
+            fig_bar_proc.update_layout(margin=dict(t=20, b=30, l=30, r=30))
+            st.plotly_chart(fig_bar_proc, use_container_width=True, config=PLOTLY_CONFIG)
 
         st.divider()
 
-        st.markdown("#### Importes de Ajuste por TIPO DE ALMACÉN 2")
+        st.markdown("##### Importes de Ajuste por TIPO DE ALMACÉN 2")
         df_alm2_bar = df_f.groupby(['TIPO DE ALMACÉN 2', 'Efecto_Contable'])['COSTO TOTAL'].apply(lambda x: x.abs().sum()).reset_index()
         fig_bar_alm2 = px.bar(
             df_alm2_bar, x='TIPO DE ALMACÉN 2', y='COSTO TOTAL', color='Efecto_Contable',
             barmode='stack',
-            color_discrete_map={'Faltante (-)': '#E63946', 'Sobrante (+)': '#2A9D8F'},
-            title="Monto Acumulado por Tipo de Almacén 2"
+            color_discrete_map={'Faltante (-)': '#E63946', 'Sobrante (+)': '#2A9D8F'}
         )
         fig_bar_alm2.update_xaxes(type='category', title_text="Tipo de Almacén 2", tickangle=-45)
         fig_bar_alm2.update_yaxes(tickformat="$,.0f", title_text="Impacto Financiero ($)")
-        st.plotly_chart(fig_bar_alm2, use_container_width=True)
+        fig_bar_alm2.update_layout(margin=dict(t=20, b=30, l=30, r=30))
+        st.plotly_chart(fig_bar_alm2, use_container_width=True, config=PLOTLY_CONFIG)
 
     # ==========================================================================
-    # PESTAÑA 2: IRA E ILA SEPARADOS CON SUS PROPIAS METRICAS Y TARGETS
+    # PESTAÑA 2: IRA E ILA SEPARADOS VERTICALMENTE
     # ==========================================================================
     elif selected_tab == "Indicadores IRA/ILA":
         st.subheader("🎯 Indicadores de Exactitud y Localización de Inventarios")
         
-        granularidad = st.radio("Ver tendencia por:", ["Mes", "Semana", "Día"], horizontal=True)
-        st.markdown("---")
+        ira_series = df_f['IRA'].dropna()
+        ila_series = df_f['ILA'].dropna()
+        
+        ira_acum = float(ira_series.mean()) if not ira_series.empty else 0.0
+        ila_acum = float(ila_series.mean()) if not ila_series.empty else 0.0
 
+        col_ctrl, col_kpi_ira, col_kpi_ila = st.columns([2, 1, 1])
+        
+        with col_ctrl:
+            granularidad = st.radio("Ver tendencia por:", ["Mes", "Semana", "Día"], horizontal=True)
+            
+        with col_kpi_ira:
+            render_kpi_color("IRA Acumulado", ira_acum, es_porcentaje=True, color_override="#1976D2")
+            
+        with col_kpi_ila:
+            render_kpi_color("ILA Acumulado", ila_acum, es_porcentaje=True, color_override="#1976D2")
+        
+        st.markdown("---")
+        
         cols_groupby = ['IRA', 'ILA']
         if 'TARGET IRA' in df_f.columns: cols_groupby.append('TARGET IRA')
         if 'TARGET ILA' in df_f.columns: cols_groupby.append('TARGET ILA')
@@ -482,7 +505,6 @@ try:
             df_ira_ila = df_ira_ila.dropna(subset=['IRA', 'ILA'], how='all').sort_values('Fecha_Día')
             eje_x_labels = df_ira_ila['Fecha_Día'].astype(str)
 
-        # Asignar metas predeterminadas si no vienen en la planilla (IRA: 98.5%, ILA: 97.5%)
         if 'TARGET IRA' not in df_ira_ila.columns or df_ira_ila['TARGET IRA'].isna().all():
             df_ira_ila['TARGET IRA'] = 0.985
         if 'TARGET ILA' not in df_ira_ila.columns or df_ira_ila['TARGET ILA'].isna().all():
@@ -493,9 +515,6 @@ try:
         # ----------------------------------------------------------------------
         st.markdown("### 🎯 EXACTITUD DE INVENTARIO (IRA)")
         
-        ira_series = df_f['IRA'].dropna()
-        ira_acum = float(ira_series.mean()) if not ira_series.empty else 0.0
-        
         target_ira_series = df_f['TARGET IRA'].dropna() if 'TARGET IRA' in df_f.columns else pd.Series()
         target_ira_acum = float(target_ira_series.mean()) if not target_ira_series.empty else 0.985
 
@@ -503,7 +522,9 @@ try:
         with c_ira1:
             render_kpi_color("IRA Acumulado", ira_acum, es_porcentaje=True, color_override="#1976D2")
         with c_ira2:
-            render_kpi_color("TARGET IRA", target_ira_acum, es_porcentaje=True, color_override="#D32F2F")
+            render_kpi_color("TARGET IRA", target_ira_acum, es_porcentaje=True, color_override="#FF8F00")
+
+        st.markdown(f"##### Evolución Cronológica IRA vs Target (98.5%) por {granularidad}")
 
         ira_labels = [f"{v:.1%}" if pd.notna(v) else "" for v in df_ira_ila['IRA']]
         target_ira_labels = [f"{v:.1%}" if pd.notna(v) else "" for v in df_ira_ila['TARGET IRA']]
@@ -518,33 +539,33 @@ try:
             text=ira_labels,
             textposition="top center",
             textfont=dict(size=11, color='#1976D2', family="sans-serif"),
-            line=dict(color='#1976D2', width=4),
+            line=dict(color='#1976D2', width=3),
             marker=dict(size=8, color='#1976D2')
         ))
         
-        fig_ira.add_trace(go.Scatter(
-            x=eje_x_labels, 
-            y=df_ira_ila['TARGET IRA'], 
-            mode='lines+markers+text', 
-            name='Target IRA (%)', 
-            text=target_ira_labels,
-            textposition="bottom center",
-            textfont=dict(size=10, color='#D32F2F', family="sans-serif"),
-            line=dict(color='#D32F2F', width=2.5, dash='dash'),
-            marker=dict(size=6, color='#D32F2F')
-        ))
+        if 'TARGET IRA' in df_ira_ila.columns and df_ira_ila['TARGET IRA'].notna().any():
+            fig_ira.add_trace(go.Scatter(
+                x=eje_x_labels, 
+                y=df_ira_ila['TARGET IRA'], 
+                mode='lines+markers+text', 
+                name='Target IRA (%)', 
+                text=target_ira_labels,
+                textposition="bottom center",
+                textfont=dict(size=10, color='#FF8F00', family="sans-serif"),
+                line=dict(color='#FF8F00', width=2.5, dash='dash'),
+                marker=dict(size=6, color='#FF8F00')
+            ))
             
         fig_ira.update_layout(
-            title=f"Evolución Cronológica IRA vs Target (98.5%) por {granularidad}", 
             yaxis_title="Porcentaje (%)", 
             hovermode="x unified",
             height=380,
-            margin=dict(t=50, b=50, l=40, r=40)
+            margin=dict(t=20, b=40, l=40, r=40)
         )
         fig_ira.update_yaxes(tickformat=".1%", automargin=True)
         fig_ira.update_xaxes(tickangle=-45)
 
-        st.plotly_chart(fig_ira, use_container_width=True)
+        st.plotly_chart(fig_ira, use_container_width=True, config=PLOTLY_CONFIG)
 
         st.divider()
 
@@ -553,9 +574,6 @@ try:
         # ----------------------------------------------------------------------
         st.markdown("### 📍 LOCALIZACIÓN DE INVENTARIO (ILA)")
         
-        ila_series = df_f['ILA'].dropna()
-        ila_acum = float(ila_series.mean()) if not ila_series.empty else 0.0
-        
         target_ila_series = df_f['TARGET ILA'].dropna() if 'TARGET ILA' in df_f.columns else pd.Series()
         target_ila_acum = float(target_ila_series.mean()) if not target_ila_series.empty else 0.975
 
@@ -563,7 +581,9 @@ try:
         with c_ila1:
             render_kpi_color("ILA Acumulado", ila_acum, es_porcentaje=True, color_override="#1976D2")
         with c_ila2:
-            render_kpi_color("TARGET ILA", target_ila_acum, es_porcentaje=True, color_override="#D32F2F")
+            render_kpi_color("TARGET ILA", target_ila_acum, es_porcentaje=True, color_override="#FF8F00")
+
+        st.markdown(f"##### Evolución Cronológica ILA vs Target (97.5%) por {granularidad}")
 
         ila_labels = [f"{v:.1%}" if pd.notna(v) else "" for v in df_ira_ila['ILA']]
         target_ila_labels = [f"{v:.1%}" if pd.notna(v) else "" for v in df_ira_ila['TARGET ILA']]
@@ -578,33 +598,33 @@ try:
             text=ila_labels,
             textposition="top center",
             textfont=dict(size=11, color='#1976D2', family="sans-serif"),
-            line=dict(color='#1976D2', width=4),
+            line=dict(color='#1976D2', width=3),
             marker=dict(size=8, color='#1976D2')
         ))
         
-        fig_ila.add_trace(go.Scatter(
-            x=eje_x_labels, 
-            y=df_ira_ila['TARGET ILA'], 
-            mode='lines+markers+text', 
-            name='Target ILA (%)', 
-            text=target_ila_labels,
-            textposition="bottom center",
-            textfont=dict(size=10, color='#D32F2F', family="sans-serif"),
-            line=dict(color='#D32F2F', width=2.5, dash='dash'),
-            marker=dict(size=6, color='#D32F2F')
-        ))
+        if 'TARGET ILA' in df_ira_ila.columns and df_ira_ila['TARGET ILA'].notna().any():
+            fig_ila.add_trace(go.Scatter(
+                x=eje_x_labels, 
+                y=df_ira_ila['TARGET ILA'], 
+                mode='lines+markers+text', 
+                name='Target ILA (%)', 
+                text=target_ila_labels,
+                textposition="bottom center",
+                textfont=dict(size=10, color='#FF8F00', family="sans-serif"),
+                line=dict(color='#FF8F00', width=2.5, dash='dash'),
+                marker=dict(size=6, color='#FF8F00')
+            ))
             
         fig_ila.update_layout(
-            title=f"Evolución Cronológica ILA vs Target (97.5%) por {granularidad}", 
             yaxis_title="Porcentaje (%)", 
             hovermode="x unified",
             height=380,
-            margin=dict(t=50, b=50, l=40, r=40)
+            margin=dict(t=20, b=40, l=40, r=40)
         )
         fig_ila.update_yaxes(tickformat=".1%", automargin=True)
         fig_ila.update_xaxes(tickangle=-45)
 
-        st.plotly_chart(fig_ila, use_container_width=True)
+        st.plotly_chart(fig_ila, use_container_width=True, config=PLOTLY_CONFIG)
         
         with st.expander("📄 Ver detalle numérico de IRA e ILA"):
             fmt_map = {'IRA': '{:.2%}', 'ILA': '{:.2%}'}
@@ -649,16 +669,20 @@ try:
             st.markdown("---")
             col_s1, col_s2 = st.columns(2)
             with col_s1:
+                st.markdown("##### Ajuste por Motivo (Col. W)")
                 df_sku_mot = df_sku_adj.groupby(['MOTIVO', 'Efecto_Contable'])['Cantidad de diferencia'].sum().reset_index()
-                fig_mot = px.bar(df_sku_mot, x='MOTIVO', y='Cantidad de diferencia', color='Efecto_Contable', barmode='stack', color_discrete_map={'Faltante (-)': '#E63946', 'Sobrante (+)': '#2A9D8F'}, title="Ajuste por Motivo (Col. W)")
+                fig_mot = px.bar(df_sku_mot, x='MOTIVO', y='Cantidad de diferencia', color='Efecto_Contable', barmode='stack', color_discrete_map={'Faltante (-)': '#E63946', 'Sobrante (+)': '#2A9D8F'})
                 fig_mot.update_xaxes(type='category', tickangle=-45)
-                st.plotly_chart(fig_mot, use_container_width=True)
+                fig_mot.update_layout(margin=dict(t=20, b=30, l=30, r=30))
+                st.plotly_chart(fig_mot, use_container_width=True, config=PLOTLY_CONFIG)
                 
             with col_s2:
+                st.markdown("##### Ajuste por Proceso (Col. X)")
                 df_sku_pr = df_sku_adj.groupby(['PROCESO', 'Efecto_Contable'])['Cantidad de diferencia'].sum().reset_index()
-                fig_pr = px.bar(df_sku_pr, x='PROCESO', y='Cantidad de diferencia', color='Efecto_Contable', barmode='stack', color_discrete_map={'Faltante (-)': '#E63946', 'Sobrante (+)': '#2A9D8F'}, title="Ajuste por Proceso (Col. X)")
+                fig_pr = px.bar(df_sku_pr, x='PROCESO', y='Cantidad de diferencia', color='Efecto_Contable', barmode='stack', color_discrete_map={'Faltante (-)': '#E63946', 'Sobrante (+)': '#2A9D8F'})
                 fig_pr.update_xaxes(type='category', tickangle=-45)
-                st.plotly_chart(fig_pr, use_container_width=True)
+                fig_pr.update_layout(margin=dict(t=20, b=30, l=30, r=30))
+                st.plotly_chart(fig_pr, use_container_width=True, config=PLOTLY_CONFIG)
                 
             st.markdown("#### Detalle de Imputación Contable (Columna AC)")
             df_sku_display = df_sku_adj[['Fe.contabilización', 'MOTIVO', 'PROCESO', 'TIPO DE ALMACÉN 2', 'Cantidad de diferencia', 'COSTO TOTAL']].copy()
@@ -708,12 +732,16 @@ try:
             st.markdown("---")
             col_c1, col_c2 = st.columns(2)
             with col_c1:
-                fig_cv_w = px.pie(df_cv_adj.groupby('MOTIVO')['COSTO TOTAL'].apply(lambda x: x.abs().sum()).reset_index(), values='COSTO TOTAL', names='MOTIVO', title="Costo por Motivo (Col W)")
-                st.plotly_chart(fig_cv_w, use_container_width=True)
+                st.markdown("##### Costo por Motivo (Col W)")
+                fig_cv_w = px.pie(df_cv_adj.groupby('MOTIVO')['COSTO TOTAL'].apply(lambda x: x.abs().sum()).reset_index(), values='COSTO TOTAL', names='MOTIVO')
+                fig_cv_w.update_layout(margin=dict(t=20, b=30, l=30, r=30))
+                st.plotly_chart(fig_cv_w, use_container_width=True, config=PLOTLY_CONFIG)
                 
             with col_c2:
-                fig_cv_x = px.pie(df_cv_adj.groupby('PROCESO')['COSTO TOTAL'].apply(lambda x: x.abs().sum()).reset_index(), values='COSTO TOTAL', names='PROCESO', title="Costo por Proceso (Col X)")
-                st.plotly_chart(fig_cv_x, use_container_width=True)
+                st.markdown("##### Costo por Proceso (Col X)")
+                fig_cv_x = px.pie(df_cv_adj.groupby('PROCESO')['COSTO TOTAL'].apply(lambda x: x.abs().sum()).reset_index(), values='COSTO TOTAL', names='PROCESO')
+                fig_cv_x.update_layout(margin=dict(t=20, b=30, l=30, r=30))
+                st.plotly_chart(fig_cv_x, use_container_width=True, config=PLOTLY_CONFIG)
                 
             st.markdown("#### Detalle Contable del CV Seleccionado")
             df_cv_display = df_cv_adj[['Fe.contabilización', 'Producto', 'Descripción producto', 'MOTIVO', 'PROCESO', 'TIPO DE ALMACÉN 2', 'Cantidad de diferencia', 'COSTO TOTAL']].copy()
