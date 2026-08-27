@@ -18,7 +18,7 @@ PLOTLY_CONFIG = {
 # ------------------------------------------------------------------------------
 def check_password():
     def password_entered():
-        if st.session_state["password"] == "Natura2026":
+        if st.session_state["password"] == "Espe2025":
             st.session_state["password_correct"] = True
             del st.session_state["password"]
         else:
